@@ -32,7 +32,8 @@ class SecureSessionStore implements SessionStore {
   Future<String?> readToken() => _read(_tokenKey);
 
   @override
-  Future<void> saveToken(String token) => _storage.write(key: _tokenKey, value: token);
+  Future<void> saveToken(String token) =>
+      _storage.write(key: _tokenKey, value: token);
 
   @override
   Future<QboxUser?> readUser() async {

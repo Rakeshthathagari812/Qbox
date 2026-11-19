@@ -53,8 +53,7 @@ class _StartupGateState extends State<StartupGate> {
       } on ApiException catch (e) {
         if (e.isUnauthorized) {
           // Expired, or ended by a PIN reset: log in again.
-          await services.session.clear();
-          await services.calculator.clear();
+          await services.forgetUserData();
         } else {
           // Server unreachable: open with the saved account details, so
           // offline features (like the calculator) still work.

@@ -1,5 +1,9 @@
 import 'package:qbox_app/calculator/calculator_store.dart';
 import 'package:qbox_app/calculator/voice_services.dart';
+import 'package:qbox_app/calendar/calendar_api.dart';
+import 'package:qbox_app/calendar/calendar_models.dart';
+import 'package:qbox_app/calendar/calendar_store.dart';
+import 'package:qbox_app/calendar/reminders.dart';
 import 'package:qbox_app/models/qbox_user.dart';
 import 'package:qbox_app/onboarding_draft.dart';
 import 'package:qbox_app/services/app_services.dart';
@@ -58,7 +62,11 @@ class FakeAuthApi implements AuthApi {
   }
 
   @override
-  Future<String> verifyOtp(String mobile, OtpPurpose purpose, String code) async {
+  Future<String> verifyOtp(
+    String mobile,
+    OtpPurpose purpose,
+    String code,
+  ) async {
     if (code != otp) {
       throw const ApiException(
         'OTP_WRONG',
@@ -72,10 +80,14 @@ class FakeAuthApi implements AuthApi {
   @override
   Future<AuthResult> register(Map<String, dynamic> body) async {
     lastRegistration = body;
-    final mobile = _mobileFrom(body['verificationToken'] as String, OtpPurpose.signup);
+    final mobile = _mobileFrom(
+      body['verificationToken'] as String,
+      OtpPurpose.signup,
+    );
     final id = _accounts.length + 1;
     final roles = {
-      for (final code in body['roles'] as List<dynamic>) roleFromCode(code as String)!,
+      for (final code in body['roles'] as List<dynamic>)
+        roleFromCode(code as String)!,
     };
     final shop = body['shop'] as Map<String, dynamic>?;
     final customer = body['customer'] as Map<String, dynamic>?;
@@ -86,7 +98,10 @@ class FakeAuthApi implements AuthApi {
       roles: roles,
       shop: shop == null
           ? null
-          : ShopProfile(qboxId: 'QBM${10000 + id}', shopName: shop['shopName'] as String),
+          : ShopProfile(
+              qboxId: 'QBM${10000 + id}',
+              shopName: shop['shopName'] as String,
+            ),
       customer: customer == null
           ? null
           : CustomerProfile(
@@ -195,6 +210,9 @@ AppServices fakeServices({
   CalculatorStore? calculator,
   VoiceInput? voice,
   Speaker? speaker,
+  CalendarApi? calendar,
+  CalendarStore? calendarStore,
+  ReminderScheduler? reminders,
 }) {
   return AppServices(
     auth: api ?? FakeAuthApi(),
@@ -202,5 +220,103 @@ AppServices fakeServices({
     calculator: calculator ?? MemoryCalculatorStore(),
     voice: voice ?? FakeVoiceInput(),
     speaker: speaker ?? FakeSpeaker(),
+    calendar: calendar ?? FakeCalendarApi(),
+    calendarStore: calendarStore ?? MemoryCalendarStore(),
+    reminders: reminders ?? FakeReminders(),
   );
+}
+
+/// Pretend calendar server: keeps events in memory, per role.
+class FakeCalendarApi implements CalendarApi {
+  final Map<QboxRole, List<CalendarEvent>> saved = {};
+  List<Festival> festivalList = [
+    Festival(day: DateTime(2026, 11, 8), name: 'Deepavali', telugu: false),
+    Festival(
+      day: DateTime(2026, 11, 24),
+      name: 'Kartika Purnima',
+      telugu: false,
+    ),
+  ];
+  bool offline = false;
+  int _nextId = 1;
+
+  void _check() {
+    if (offline) {
+      throw const ApiException(
+        'NETWORK',
+        'Cannot reach the QBOX server. Check your internet connection.',
+      );
+    }
+  }
+
+  CalendarEvent _make(int id, EventDraft d) => CalendarEvent(
+    id: id,
+    title: d.title.trim(),
+    day: d.day,
+    minuteOfDay: d.minuteOfDay,
+    category: d.category,
+    repeat: d.repeat,
+    remindMinutes: d.remindMinutes,
+    note: d.note,
+  );
+
+  @override
+  Future<List<CalendarEvent>> events(QboxRole role) async {
+    _check();
+    return List.of(saved[role] ?? const []);
+  }
+
+  @override
+  Future<CalendarEvent> create(QboxRole role, EventDraft draft) async {
+    _check();
+    final event = _make(_nextId++, draft);
+    (saved[role] ??= []).add(event);
+    return event;
+  }
+
+  @override
+  Future<CalendarEvent> update(QboxRole role, int id, EventDraft draft) async {
+    _check();
+    final list = saved[role]!;
+    final i = list.indexWhere((e) => e.id == id);
+    list[i] = _make(id, draft);
+    return list[i];
+  }
+
+  @override
+  Future<void> delete(int id) async {
+    _check();
+    for (final list in saved.values) {
+      list.removeWhere((e) => e.id == id);
+    }
+  }
+
+  @override
+  Future<List<Festival>> festivals() async {
+    _check();
+    return festivalList;
+  }
+}
+
+/// Pretend notifications: remembers what would have been scheduled.
+class FakeReminders implements ReminderScheduler {
+  final Map<QboxRole, List<CalendarEvent>> synced = {};
+  bool cleared = false;
+  int permissionAsks = 0;
+
+  @override
+  Future<bool> askPermission() async {
+    permissionAsks++;
+    return true;
+  }
+
+  @override
+  Future<void> sync(QboxRole role, List<CalendarEvent> events) async =>
+      synced[role] = List.of(events);
+
+  @override
+  Future<void> clearAll() async {
+    cleared = true;
+    synced.clear();
+  }
 }

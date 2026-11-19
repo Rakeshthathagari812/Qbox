@@ -124,9 +124,9 @@ Future<void> _logOut(BuildContext context) async {
   final services = ServicesScope.of(context);
   final draft = OnboardingScope.of(context);
   final navigator = Navigator.of(context);
-  await services.session.clear();
-  // The next person on this phone must not see this user's calculations.
-  await services.calculator.clear();
+  // The next person on this phone must not see this user's login,
+  // calculations, calendar or reminders.
+  await services.forgetUserData();
   draft.clear();
   navigator.pushAndRemoveUntil(
     signupRoute(const WelcomeScreen()),

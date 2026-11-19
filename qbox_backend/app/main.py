@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.auth.router import router as auth_router
+from app.calendar.router import router as calendar_router
 from app.config import get_settings
 from app.database import engine
 from app.errors import register_error_handlers
@@ -36,6 +37,7 @@ app = FastAPI(
 register_error_handlers(app)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(calendar_router)
 
 
 @app.get("/health", tags=["Health"], summary="Is the server (and database) up?")

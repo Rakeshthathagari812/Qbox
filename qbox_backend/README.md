@@ -36,6 +36,11 @@ this PC blocks the small `.exe` launchers (uvicorn.exe, alembic.exe) inside `.ve
 | POST | `/api/auth/login` | No |
 | POST | `/api/auth/pin/reset` | No (verification token) |
 | GET | `/api/me` | Yes |
+| GET | `/api/calendar/events?role=BUSINESS` | Yes (own events only) |
+| POST | `/api/calendar/events` | Yes |
+| PUT | `/api/calendar/events/{id}` | Yes (owner only) |
+| DELETE | `/api/calendar/events/{id}` | Yes (owner only) |
+| GET | `/api/calendar/festivals` | Yes |
 | GET | `/health` | No |
 
 ## Folders
@@ -51,6 +56,7 @@ app/
   deps.py        "needs login" check for protected APIs
   auth/          sign up, OTP, login, reset PIN   (router -> service)
   users/         GET /api/me
+  calendar/      events (per user and role) and the festival list
 alembic/versions/  database table changes, applied in order
 tests/             automatic tests (use the qbox_test database)
 ```
@@ -99,6 +105,13 @@ Control on this PC blocks SQLAlchemy's optional compiled speed-up files.
 | Wrong login takes the same time for unknown numbers | `security.DUMMY_HASH` |
 | Responses never contain hashes, attempts or lock details | `users/service.to_me` |
 | Server refuses to start in production with dev settings | `config.check_settings` |
+
+## Festival list (update every year)
+
+Festivals live in the `festivals` table (first filled by `alembic/versions/0003_calendar.py`).
+When the official Telangana / AP holiday list for a new year is published (usually December),
+add a new migration that inserts that year's rows. The app picks them up with no app update.
+2027 still needs: Islamic festivals, Bonalu and Bathukamma.
 
 ## Before going live
 

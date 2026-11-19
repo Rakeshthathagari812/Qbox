@@ -39,6 +39,9 @@ dependencies:
   speech_to_text: ^7.5.0
   flutter_tts: ^4.2.5
   shared_preferences: ^2.5.6
+  # 22.x: version 23 needs Android SDK 37 / a newer Android Gradle Plugin.
+  flutter_local_notifications: ^22.3.3
+  timezone: ^0.11.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

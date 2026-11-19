@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'calculator/calculator_screen.dart';
+import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
 import 'widgets/qbox_wave.dart';
 import 'widgets/qr_mark.dart';
@@ -266,7 +267,7 @@ class _ToolGrid extends StatelessWidget {
     _Tool(Icons.inventory_2_outlined, 'Stock', drawn: _Drawn.stock, caption: '(Inventory)'),
     _Tool(Icons.local_shipping_outlined, 'Supplier'),
     _Tool(Icons.calculate_outlined, 'Calculator', opens: openCalculator),
-    _Tool(Icons.calendar_month_outlined, 'Calendar'),
+    _Tool(Icons.calendar_month_outlined, 'Calendar', opens: openShopCalendar),
     _Tool(Icons.translate, 'Translator'),
     _Tool(Icons.auto_awesome, 'QBOX AI', caption: '(Voice assistant)'),
   ];

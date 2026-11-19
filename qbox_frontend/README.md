@@ -40,6 +40,12 @@ lib/
     voice_services.dart     phone microphone (speech_to_text) and speaker (flutter_tts)
     calculator_store.dart   history/GT/memory saved on the phone, cleared on log out
     calculator_screen.dart  the screen
+  calendar/               shop & personal calendar (backend + phone copy for offline)
+    calendar_models.dart    events, repeats, festivals, date helpers
+    voice_event.dart        spoken sentence -> event ("tomorrow 10 am supplier payment")
+    calendar_api.dart       backend calls; calendar_store.dart = phone copy
+    reminders.dart          phone notifications (flutter_local_notifications)
+    calendar_screen.dart    month view; event_form_screen.dart = add/edit
   models/                 data from the backend (QboxUser)
   services/               backend calls (auth_api.dart), saved login (session_store.dart)
   widgets/                shared pieces (digit boxes, wave footer, animations)

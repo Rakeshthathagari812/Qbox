@@ -4,18 +4,21 @@ Tables are created and changed through Alembic migrations
 (alembic/versions/), never by hand.
 """
 
+import datetime as dt
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     String,
+    Time,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -41,6 +44,24 @@ class OtpPurpose(str, enum.Enum):
 
     SIGNUP = "SIGNUP"
     RESET_PIN = "RESET_PIN"
+
+
+class EventCategory(str, enum.Enum):
+    """Matches EventCategory in the Flutter app; each has its own colour there."""
+
+    SHOP = "SHOP"
+    SUPPLIER = "SUPPLIER"
+    PAYMENT = "PAYMENT"
+    PERSONAL = "PERSONAL"
+    OTHER = "OTHER"
+
+
+class Repeat(str, enum.Enum):
+    NONE = "NONE"
+    DAILY = "DAILY"
+    WEEKLY = "WEEKLY"
+    MONTHLY = "MONTHLY"
+    YEARLY = "YEARLY"
 
 
 class User(Base):
@@ -137,3 +158,37 @@ class OtpCode(Base):
     # When the verification token made from this OTP was used (it works only once).
     token_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CalendarEvent(Base):
+    """One event or reminder in a user's calendar. Each role has its own
+    calendar (the Shop calendar and the Customer calendar never mix)."""
+
+    __tablename__ = "calendar_events"
+    __table_args__ = (Index("idx_calendar_events_owner", "user_id", "role", "event_date"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(20))
+    title: Mapped[str] = mapped_column(String(120))
+    note: Mapped[str | None] = mapped_column(String(500))
+    category: Mapped[str] = mapped_column(String(20))
+    day: Mapped[date] = mapped_column("event_date", Date)
+    time: Mapped[dt.time | None] = mapped_column("event_time", Time)
+    repeat: Mapped[str] = mapped_column(String(10), default="NONE", server_default="NONE")
+    remind_minutes: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Festival(Base):
+    """Built-in festivals and holidays, shared by everyone (read-only for users)."""
+
+    __tablename__ = "festivals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[date] = mapped_column(Date)
+    name: Mapped[str] = mapped_column(String(80))
+    region: Mapped[str] = mapped_column(String(10))

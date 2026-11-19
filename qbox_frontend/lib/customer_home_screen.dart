@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'calculator/calculator_screen.dart';
+import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
 import 'widgets/qr_mark.dart';
 import 'widgets/qbox_wave.dart';
@@ -311,7 +312,7 @@ class _ToolGrid extends StatelessWidget {
     _Tool('Transaction History', '', icon: Icons.history),
     _Tool('Translator', '', icon: Icons.translate),
     _Tool('Calculator', '', icon: Icons.calculate_outlined, opens: openCalculator),
-    _Tool('Calendar', '', icon: Icons.calendar_month_outlined),
+    _Tool('Calendar', '', icon: Icons.calendar_month_outlined, opens: openCustomerCalendar),
     _Tool('Expenses Tracking', '', coins: true),
   ];
 

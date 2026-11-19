@@ -1,10 +1,8 @@
-import 'dart:async';
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
 import '../models/qbox_user.dart';
 import '../onboarding_draft.dart';
+import 'api_client.dart';
+
+export 'api_client.dart' show ApiException;
 
 enum OtpPurpose {
   signup('SIGNUP'),
@@ -30,20 +28,6 @@ class AuthResult {
   final QboxUser user;
 }
 
-/// An error to show the user. [message] is already written for shopkeepers.
-class ApiException implements Exception {
-  const ApiException(this.code, this.message, {this.status = 0});
-
-  final String code;
-  final String message;
-  final int status;
-
-  bool get isUnauthorized => status == 401;
-
-  @override
-  String toString() => 'ApiException($code, $message)';
-}
-
 /// Everything the app asks the backend about accounts.
 abstract class AuthApi {
   Future<OtpSent> sendOtp(String mobile, OtpPurpose purpose);
@@ -62,20 +46,18 @@ abstract class AuthApi {
 
 /// Talks to the FastAPI backend over REST.
 class HttpAuthApi implements AuthApi {
-  HttpAuthApi({required this.baseUrl, http.Client? client})
-      : _client = client ?? http.Client();
+  HttpAuthApi(this._api);
 
-  final String baseUrl;
-  final http.Client _client;
-
-  static const _timeout = Duration(seconds: 15);
+  final ApiClient _api;
 
   @override
   Future<OtpSent> sendOtp(String mobile, OtpPurpose purpose) async {
-    final json = await _post('/api/auth/otp/send', {
-      'mobile': mobile,
-      'purpose': purpose.code,
-    });
+    final json = await _map(
+      _api.post('/api/auth/otp/send', {
+        'mobile': mobile,
+        'purpose': purpose.code,
+      }, auth: false),
+    );
     return OtpSent(
       resendInSeconds: (json['resendInSeconds'] as num?)?.toInt() ?? 30,
       devOtp: json['devOtp'] as String?,
@@ -83,44 +65,53 @@ class HttpAuthApi implements AuthApi {
   }
 
   @override
-  Future<String> verifyOtp(String mobile, OtpPurpose purpose, String otp) async {
-    final json = await _post('/api/auth/otp/verify', {
-      'mobile': mobile,
-      'purpose': purpose.code,
-      'otp': otp,
-    });
+  Future<String> verifyOtp(
+    String mobile,
+    OtpPurpose purpose,
+    String otp,
+  ) async {
+    final json = await _map(
+      _api.post('/api/auth/otp/verify', {
+        'mobile': mobile,
+        'purpose': purpose.code,
+        'otp': otp,
+      }, auth: false),
+    );
     return json['verificationToken'] as String;
   }
 
   @override
   Future<AuthResult> register(Map<String, dynamic> body) async {
-    return _authResult(await _post('/api/auth/register', body));
+    return _authResult(
+      await _map(_api.post('/api/auth/register', body, auth: false)),
+    );
   }
 
   @override
   Future<AuthResult> login(String mobile, String pin) async {
     return _authResult(
-      await _post('/api/auth/login', {'mobile': mobile, 'pin': pin}),
+      await _map(
+        _api.post('/api/auth/login', {
+          'mobile': mobile,
+          'pin': pin,
+        }, auth: false),
+      ),
     );
   }
 
   @override
   Future<void> resetPin(String verificationToken, String newPin) async {
-    await _post('/api/auth/pin/reset', {
+    await _api.post('/api/auth/pin/reset', {
       'verificationToken': verificationToken,
       'newPin': newPin,
-    });
+    }, auth: false);
   }
 
   @override
   Future<QboxUser> me(String accessToken) async {
-    final json = await _send(
-      () => _client.get(
-        Uri.parse('$baseUrl/api/me'),
-        headers: {'Authorization': 'Bearer $accessToken'},
-      ),
+    return QboxUser.fromJson(
+      await _map(_api.getWithToken('/api/me', accessToken)),
     );
-    return QboxUser.fromJson(json);
   }
 
   AuthResult _authResult(Map<String, dynamic> json) {
@@ -130,58 +121,9 @@ class HttpAuthApi implements AuthApi {
     );
   }
 
-  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) {
-    return _send(
-      () => _client.post(
-        Uri.parse('$baseUrl$path'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      ),
-    );
-  }
-
-  Future<Map<String, dynamic>> _send(
-    Future<http.Response> Function() request,
-  ) async {
-    final http.Response response;
-    try {
-      response = await request().timeout(_timeout);
-    } on TimeoutException {
-      throw const ApiException(
-        'NETWORK',
-        'The QBOX server is taking too long. Please try again.',
-      );
-    } catch (_) {
-      throw const ApiException(
-        'NETWORK',
-        'Cannot reach the QBOX server. Check your internet connection.',
-      );
-    }
-
-    final decoded = response.body.isEmpty ? null : _decode(response.body);
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return decoded is Map<String, dynamic> ? decoded : const {};
-    }
-    if (decoded is Map<String, dynamic> && decoded['message'] is String) {
-      throw ApiException(
-        decoded['code'] as String? ?? 'ERROR',
-        decoded['message'] as String,
-        status: response.statusCode,
-      );
-    }
-    throw ApiException(
-      'ERROR',
-      'Something went wrong. Please try again.',
-      status: response.statusCode,
-    );
-  }
-
-  static Object? _decode(String body) {
-    try {
-      return jsonDecode(body);
-    } on FormatException {
-      return null;
-    }
+  static Future<Map<String, dynamic>> _map(Future<Object?> reply) async {
+    final json = await reply;
+    return json is Map<String, dynamic> ? json : const {};
   }
 }
 
