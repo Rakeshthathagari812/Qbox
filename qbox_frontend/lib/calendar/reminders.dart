@@ -30,6 +30,26 @@ DateTime? nextReminderTime(CalendarEvent event, DateTime now) {
   return start?.subtract(Duration(minutes: before));
 }
 
+/// The notification text for a reminder that rings at [remindAt]: which day
+/// the event is (seen from the moment it rings), its time, and the note.
+/// "Tomorrow · 10:00 AM · Payment", "Today · All day · Shop".
+String reminderBody(CalendarEvent event, DateTime remindAt) {
+  final start = remindAt.add(Duration(minutes: event.remindMinutes ?? 0));
+  final days = DateTime.utc(start.year, start.month, start.day)
+      .difference(DateTime.utc(remindAt.year, remindAt.month, remindAt.day))
+      .inDays;
+  final day = switch (days) {
+    0 => 'Today',
+    1 => 'Tomorrow',
+    _ => longDate(start),
+  };
+  final time = event.minuteOfDay == null
+      ? 'All day'
+      : timeLabel(event.minuteOfDay!);
+  final note = event.note.trim();
+  return '$day · $time · ${note.isEmpty ? event.category.label : note}';
+}
+
 class LocalReminderScheduler implements ReminderScheduler {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -96,7 +116,7 @@ class LocalReminderScheduler implements ReminderScheduler {
           // "exact alarm" permission from the user.
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           title: event.title,
-          body: _body(event),
+          body: reminderBody(event, at),
           payload: tag,
           matchDateTimeComponents: _repeatMatch(event.repeat),
         );
@@ -124,12 +144,4 @@ class LocalReminderScheduler implements ReminderScheduler {
     Repeat.monthly => DateTimeComponents.dayOfMonthAndTime,
     Repeat.yearly => DateTimeComponents.dateAndTime,
   };
-
-  static String _body(CalendarEvent event) {
-    final when = event.minuteOfDay == null
-        ? 'Today'
-        : timeLabel(event.minuteOfDay!);
-    final note = event.note.trim();
-    return note.isEmpty ? '$when · ${event.category.label}' : '$when · $note';
-  }
 }

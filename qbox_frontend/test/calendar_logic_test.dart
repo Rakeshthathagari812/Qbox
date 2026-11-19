@@ -76,6 +76,52 @@ void main() {
       expect(nextReminderTime(e, DateTime(2026, 12, 4, 12)), DateTime(2027, 1, 4, 10));
     });
 
+    test('reminder text says the right day', () {
+      String body(CalendarEvent e) => reminderBody(e, nextReminderTime(e, now)!);
+
+      // All-day, 1 day before: rings 9 AM the day before -> "Tomorrow" (was "Today").
+      expect(
+        body(event(day: DateTime(2026, 11, 25), remind: 1440)),
+        'Tomorrow · All day · Other',
+      );
+      // All-day, at the time: rings 9 AM that day.
+      expect(
+        body(event(day: DateTime(2026, 11, 25), remind: 0)),
+        'Today · All day · Other',
+      );
+      // 10 AM, 1 day before.
+      expect(
+        body(event(day: DateTime(2026, 11, 25), minute: 600, remind: 1440)),
+        'Tomorrow · 10:00 AM · Other',
+      );
+      // 10 AM, 1 hour before.
+      expect(
+        body(event(day: DateTime(2026, 11, 25), minute: 600, remind: 60)),
+        'Today · 10:00 AM · Other',
+      );
+      // 12:10 AM, 15 min before: rings 11:55 PM the night before.
+      expect(
+        body(event(day: DateTime(2026, 11, 25), minute: 10, remind: 15)),
+        'Tomorrow · 12:10 AM · Other',
+      );
+      // More than a day ahead: the date.
+      expect(
+        body(event(day: DateTime(2026, 11, 25), minute: 600, remind: 2880)),
+        'Wed, 25 November 2026 · 10:00 AM · Other',
+      );
+      // The note is shown when there is one.
+      final withNote = CalendarEvent(
+        id: 2,
+        title: 'Rent',
+        day: DateTime(2026, 11, 25),
+        minuteOfDay: 600,
+        category: EventCategory.payment,
+        note: 'Pay owner 15,000',
+        remindMinutes: 1440,
+      );
+      expect(body(withNote), 'Tomorrow · 10:00 AM · Pay owner 15,000');
+    });
+
     test('a past one-time event has no reminder', () {
       final e = event(day: DateTime(2026, 11, 1), minute: 600, remind: 0);
       expect(nextReminderTime(e, now), isNull);
