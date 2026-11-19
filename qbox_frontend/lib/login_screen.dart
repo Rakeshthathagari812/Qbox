@@ -55,6 +55,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final draft = OnboardingScope.of(context);
       final result = await services.auth.login(digits, _pin.text);
       await services.session.saveToken(result.accessToken);
+      await services.session.saveUser(result.user);
       if (!mounted) return;
       draft.applyUser(result.user);
       _pin.clear();

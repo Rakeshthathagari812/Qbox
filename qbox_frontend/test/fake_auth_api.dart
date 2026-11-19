@@ -1,3 +1,5 @@
+import 'package:qbox_app/calculator/calculator_store.dart';
+import 'package:qbox_app/calculator/voice_services.dart';
 import 'package:qbox_app/models/qbox_user.dart';
 import 'package:qbox_app/onboarding_draft.dart';
 import 'package:qbox_app/services/app_services.dart';
@@ -157,9 +159,48 @@ class _Account {
   final QboxUser user;
 }
 
-AppServices fakeServices({FakeAuthApi? api, SessionStore? session}) {
+/// Pretend microphone: returns [nextWords] (or throws [nextError]).
+class FakeVoiceInput implements VoiceInput {
+  String nextWords = '';
+  VoiceException? nextError;
+  int listenCount = 0;
+
+  @override
+  Future<String> listen({required void Function(String words) onWords}) async {
+    listenCount++;
+    final error = nextError;
+    if (error != null) throw error;
+    onWords(nextWords);
+    return nextWords;
+  }
+
+  @override
+  Future<void> stop() async {}
+}
+
+/// Pretend speaker: remembers what it was asked to say.
+class FakeSpeaker implements Speaker {
+  final List<String> said = [];
+
+  @override
+  Future<void> say(String text) async => said.add(text);
+
+  @override
+  Future<void> stop() async {}
+}
+
+AppServices fakeServices({
+  FakeAuthApi? api,
+  SessionStore? session,
+  CalculatorStore? calculator,
+  VoiceInput? voice,
+  Speaker? speaker,
+}) {
   return AppServices(
     auth: api ?? FakeAuthApi(),
     session: session ?? MemorySessionStore(),
+    calculator: calculator ?? MemoryCalculatorStore(),
+    voice: voice ?? FakeVoiceInput(),
+    speaker: speaker ?? FakeSpeaker(),
   );
 }

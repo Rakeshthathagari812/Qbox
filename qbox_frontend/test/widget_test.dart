@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:qbox_app/calculator/calculator_store.dart';
 import 'package:qbox_app/main.dart';
 import 'package:qbox_app/services/session_store.dart';
 
@@ -549,6 +550,108 @@ void backendTests() {
     await tester.tap(find.byKey(const Key('startup-retry')));
     await tester.pumpAndSettle();
     expect(find.text('Choose Your Role'), findsOneWidget);
+  });
+
+  testWidgets('offline with a saved login opens the app and the calculator', (
+    tester,
+  ) async {
+    final api = FakeAuthApi();
+    final session = MemorySessionStore();
+    usePhone(tester);
+
+    // Log in once while online: the account details are saved on the phone.
+    await tester.pumpWidget(QboxApp(services: fakeServices(api: api, session: session)));
+    await tester.pumpAndSettle();
+    await _logInDemo(tester);
+    expect((await session.readUser())?.mobile, FakeAuthApi.demoMobile);
+
+    // Reopen the app with no internet.
+    api.offline = true;
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(QboxApp(services: fakeServices(api: api, session: session)));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose Your Role'), findsOneWidget);
+    expect(find.byKey(const Key('offline-note')), findsOneWidget);
+
+    await tester.tap(find.text('Business / Shop'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('tool-Calculator')));
+    await tester.tap(find.byKey(const Key('tool-Calculator')));
+    await tester.pumpAndSettle();
+    for (final key in ['7', '×', '6', '=']) {
+      await tester.tap(find.byKey(Key('calc-$key')));
+      await tester.pump();
+    }
+    expect(find.text('42'), findsOneWidget);
+  });
+
+  testWidgets('log out forgets the saved account details too', (tester) async {
+    final session = MemorySessionStore();
+    usePhone(tester);
+    await tester.pumpWidget(QboxApp(services: fakeServices(session: session)));
+    await tester.pumpAndSettle();
+    await _logInDemo(tester);
+    expect(await session.readUser(), isNotNull);
+
+    await tester.ensureVisible(find.byKey(const Key('log-out')));
+    await tester.tap(find.byKey(const Key('log-out')));
+    await tester.pumpAndSettle();
+    expect(await session.readUser(), isNull);
+    expect(await session.readToken(), isNull);
+  });
+
+  testWidgets('Calculator tile opens the calculator from shop and customer homes', (
+    tester,
+  ) async {
+    usePhone(tester);
+    await tester.pumpWidget(QboxApp(services: fakeServices()));
+    await tester.pumpAndSettle();
+    await _logInDemo(tester);
+
+    for (final role in ['Business / Shop', 'Customer']) {
+      await tester.tap(find.text(role));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('tool-Calculator')));
+      await tester.tap(find.byKey(const Key('tool-Calculator')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calc-mic')), findsOneWidget, reason: role);
+
+      await tester.tap(find.byKey(const Key('calc-back')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('switch-role')));
+      await tester.pumpAndSettle();
+    }
+  });
+
+  testWidgets('tiles not built yet say coming soon', (tester) async {
+    usePhone(tester);
+    await tester.pumpWidget(QboxApp(services: fakeServices()));
+    await tester.pumpAndSettle();
+    await _logInDemo(tester);
+    await tester.tap(find.text('Business / Shop'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('tool-Udhaar')));
+    await tester.pump(const Duration(milliseconds: 200)); // tile grow effect
+    await tester.pump();
+    expect(find.text('Udhaar is coming soon'), findsOneWidget);
+  });
+
+  testWidgets('log out also clears the calculator history', (tester) async {
+    final calculator = MemoryCalculatorStore()
+      ..data = {'gt': 500, 'memory': 0, 'history': []};
+    final session = MemorySessionStore();
+    await session.saveToken('access:${FakeAuthApi.demoMobile}');
+    usePhone(tester);
+    await tester.pumpWidget(
+      QboxApp(services: fakeServices(session: session, calculator: calculator)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('log-out')));
+    await tester.tap(find.byKey(const Key('log-out')));
+    await tester.pumpAndSettle();
+    expect(calculator.data, isNull);
   });
 
   testWidgets('after login, Back does not return to the login page', (

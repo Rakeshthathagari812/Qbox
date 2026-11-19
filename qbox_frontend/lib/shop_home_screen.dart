@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'calculator/calculator_screen.dart';
 import 'onboarding_draft.dart';
 import 'widgets/qbox_wave.dart';
 import 'widgets/qr_mark.dart';
+import 'widgets/tool_tap.dart';
 
 /// Shop home shown after the user chooses Business / Shop.
 class ShopHomeScreen extends StatelessWidget {
@@ -263,7 +265,7 @@ class _ToolGrid extends StatelessWidget {
     _Tool(Icons.groups_outlined, 'Udhaar'),
     _Tool(Icons.inventory_2_outlined, 'Stock', drawn: _Drawn.stock, caption: '(Inventory)'),
     _Tool(Icons.local_shipping_outlined, 'Supplier'),
-    _Tool(Icons.calculate_outlined, 'Calculator'),
+    _Tool(Icons.calculate_outlined, 'Calculator', opens: openCalculator),
     _Tool(Icons.calendar_month_outlined, 'Calendar'),
     _Tool(Icons.translate, 'Translator'),
     _Tool(Icons.auto_awesome, 'QBOX AI', caption: '(Voice assistant)'),
@@ -288,12 +290,15 @@ class _ToolGrid extends StatelessWidget {
 enum _Drawn { payments, stock }
 
 class _Tool {
-  const _Tool(this.icon, this.label, {this.drawn, this.caption = ''});
+  const _Tool(this.icon, this.label, {this.drawn, this.caption = '', this.opens});
 
   final IconData icon;
   final String label;
   final _Drawn? drawn;
   final String caption;
+
+  /// The screen this tile opens, once the feature is built.
+  final WidgetBuilder? opens;
 }
 
 class _ToolTile extends StatelessWidget {
@@ -303,7 +308,10 @@ class _ToolTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return ToolTap(
+      label: tool.label,
+      opens: tool.opens,
+      child: DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
@@ -358,6 +366,7 @@ class _ToolTile extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'calculator/calculator_screen.dart';
 import 'onboarding_draft.dart';
 import 'widgets/qr_mark.dart';
 import 'widgets/qbox_wave.dart';
+import 'widgets/tool_tap.dart';
 
 /// Customer home shown after the user chooses Customer.
 class CustomerHomeScreen extends StatelessWidget {
@@ -308,7 +310,7 @@ class _ToolGrid extends StatelessWidget {
     _Tool('My Shops', '(Linked Shops)', icon: Icons.storefront_outlined),
     _Tool('Transaction History', '', icon: Icons.history),
     _Tool('Translator', '', icon: Icons.translate),
-    _Tool('Calculator', '', icon: Icons.calculate_outlined),
+    _Tool('Calculator', '', icon: Icons.calculate_outlined, opens: openCalculator),
     _Tool('Calendar', '', icon: Icons.calendar_month_outlined),
     _Tool('Expenses Tracking', '', coins: true),
   ];
@@ -336,6 +338,7 @@ class _Tool {
     this.icon,
     this.qr = false,
     this.coins = false,
+    this.opens,
   });
 
   final String title;
@@ -343,6 +346,9 @@ class _Tool {
   final IconData? icon;
   final bool qr;
   final bool coins;
+
+  /// The screen this tile opens, once the feature is built.
+  final WidgetBuilder? opens;
 }
 
 class _ToolTile extends StatelessWidget {
@@ -352,7 +358,10 @@ class _ToolTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return ToolTap(
+      label: tool.title,
+      opens: tool.opens,
+      child: DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
@@ -400,6 +409,7 @@ class _ToolTile extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }

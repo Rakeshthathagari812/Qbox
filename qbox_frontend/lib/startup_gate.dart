@@ -11,7 +11,8 @@ enum _Startup { checking, loggedIn, loggedOut, offline }
 /// First thing the app shows. If a login token is saved on the phone,
 /// it asks the backend who the user is and goes straight to Choose Role.
 /// Otherwise it shows the Welcome screen. If the server cannot be reached,
-/// the saved login is kept and a Try again button is shown.
+/// it opens with the account details saved at the last login (offline mode);
+/// only if there are none does it show a Try again button.
 class StartupGate extends StatefulWidget {
   const StartupGate({super.key});
 
@@ -41,24 +42,49 @@ class _StartupGateState extends State<StartupGate> {
     if (_state != _Startup.checking) setState(() => _state = _Startup.checking);
 
     var next = _Startup.loggedOut;
+    var openedOffline = false;
     final token = await services.session.readToken();
     if (token != null && token.isNotEmpty) {
       try {
-        draft.applyUser(await services.auth.me(token));
+        final user = await services.auth.me(token);
+        draft.applyUser(user);
+        await services.session.saveUser(user); // fresh copy for offline use
         next = _Startup.loggedIn;
       } on ApiException catch (e) {
         if (e.isUnauthorized) {
           // Expired, or ended by a PIN reset: log in again.
           await services.session.clear();
+          await services.calculator.clear();
         } else {
-          // Server unreachable: keep the login and let the user retry.
-          next = _Startup.offline;
-          _offlineMessage = e.message;
+          // Server unreachable: open with the saved account details, so
+          // offline features (like the calculator) still work.
+          final saved = await services.session.readUser();
+          if (saved != null) {
+            draft.applyUser(saved);
+            next = _Startup.loggedIn;
+            openedOffline = true;
+          } else {
+            next = _Startup.offline;
+            _offlineMessage = e.message;
+          }
         }
       }
     }
     if (!mounted) return;
     setState(() => _state = next);
+    if (openedOffline) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            key: Key('offline-note'),
+            content: Text('You are offline. The calculator works; other features need internet.'),
+            duration: Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      });
+    }
   }
 
   @override

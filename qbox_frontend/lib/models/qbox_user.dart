@@ -49,6 +49,29 @@ class QboxUser {
             ),
     );
   }
+
+  /// Same shape as the backend sends, so [QboxUser.fromJson] can read it back.
+  /// Used to keep a copy on the phone for opening the app offline.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'mobile': mobile,
+        'roles': [
+          for (final role in QboxRole.values)
+            if (roles.contains(role)) roleCode(role),
+        ],
+        'shop': shop == null
+            ? null
+            : {'qboxId': shop!.qboxId, 'shopName': shop!.shopName},
+        'customer': customer == null
+            ? null
+            : {'qboxId': customer!.qboxId, 'fullName': customer!.fullName},
+        'supplier': supplier == null
+            ? null
+            : {
+                'qboxId': supplier!.qboxId,
+                'supplierName': supplier!.supplierName,
+              },
+      };
 }
 
 class ShopProfile {

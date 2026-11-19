@@ -34,6 +34,12 @@ lib/
   startup_gate.dart       first screen: logged in already? -> Choose Role, else Welcome
   *_screen.dart           one file per screen (welcome, OTP, sign-up, login, PIN, homes...)
   onboarding_draft.dart   what the user typed during sign-up, and the logged-in user
+  calculator/             shop calculator (works offline, no backend needed)
+    calculator_engine.dart  the maths: keys, %, GT, memory, history
+    voice_math.dart         spoken words -> sum ("two fifty plus 180 into 3")
+    voice_services.dart     phone microphone (speech_to_text) and speaker (flutter_tts)
+    calculator_store.dart   history/GT/memory saved on the phone, cleared on log out
+    calculator_screen.dart  the screen
   models/                 data from the backend (QboxUser)
   services/               backend calls (auth_api.dart), saved login (session_store.dart)
   widgets/                shared pieces (digit boxes, wave footer, animations)
