@@ -1,0 +1,19 @@
+# Web framework and server
+fastapi>=0.115
+uvicorn[standard]>=0.32
+
+# Settings from .env
+pydantic-settings>=2.6
+
+# Database: PostgreSQL driver, ORM, and table migrations
+psycopg[binary]>=3.2
+SQLAlchemy>=2.0.36
+alembic>=1.14
+
+# Security: PIN/OTP hashing and login tokens
+bcrypt>=4.2
+PyJWT>=2.10
+
+# Tests
+pytest>=8.3
+httpx>=0.28

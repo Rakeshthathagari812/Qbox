@@ -1,0 +1,139 @@
+import 'package:flutter/material.dart';
+
+import 'choose_role_screen.dart';
+import 'onboarding_draft.dart';
+import 'services/app_services.dart';
+import 'services/auth_api.dart';
+import 'welcome_screen.dart';
+
+enum _Startup { checking, loggedIn, loggedOut, offline }
+
+/// First thing the app shows. If a login token is saved on the phone,
+/// it asks the backend who the user is and goes straight to Choose Role.
+/// Otherwise it shows the Welcome screen. If the server cannot be reached,
+/// the saved login is kept and a Try again button is shown.
+class StartupGate extends StatefulWidget {
+  const StartupGate({super.key});
+
+  @override
+  State<StartupGate> createState() => _StartupGateState();
+}
+
+class _StartupGateState extends State<StartupGate> {
+  static const _ink = Color(0xFF1C0E57);
+  static const _purple = Color(0xFF5B21E6);
+
+  _Startup _state = _Startup.checking;
+  String _offlineMessage = '';
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    _restore();
+  }
+
+  Future<void> _restore() async {
+    final services = ServicesScope.of(context);
+    final draft = OnboardingScope.of(context);
+    if (_state != _Startup.checking) setState(() => _state = _Startup.checking);
+
+    var next = _Startup.loggedOut;
+    final token = await services.session.readToken();
+    if (token != null && token.isNotEmpty) {
+      try {
+        draft.applyUser(await services.auth.me(token));
+        next = _Startup.loggedIn;
+      } on ApiException catch (e) {
+        if (e.isUnauthorized) {
+          // Expired, or ended by a PIN reset: log in again.
+          await services.session.clear();
+        } else {
+          // Server unreachable: keep the login and let the user retry.
+          next = _Startup.offline;
+          _offlineMessage = e.message;
+        }
+      }
+    }
+    if (!mounted) return;
+    setState(() => _state = next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return switch (_state) {
+      _Startup.loggedIn => const ChooseRoleScreen(),
+      _Startup.loggedOut => const WelcomeScreen(),
+      _Startup.checking => const Scaffold(
+          backgroundColor: Color(0xFFF4F0FD),
+          body: Center(child: _Logo()),
+        ),
+      _Startup.offline => Scaffold(
+          backgroundColor: const Color(0xFFF4F0FD),
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const _Logo(),
+                    const SizedBox(height: 24),
+                    const Icon(Icons.wifi_off_rounded, size: 40, color: _purple),
+                    const SizedBox(height: 12),
+                    Text(
+                      _offlineMessage,
+                      key: const Key('startup-offline'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 15,
+                        height: 1.4,
+                        color: _ink,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      key: const Key('startup-retry'),
+                      onPressed: _restore,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Try again'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _purple,
+                        minimumSize: const Size(180, 48),
+                        textStyle: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+    };
+  }
+}
+
+class _Logo extends StatelessWidget {
+  const _Logo();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Text(
+      'QBOX',
+      style: TextStyle(
+        fontFamily: 'Poppins',
+        fontSize: 40,
+        letterSpacing: 1.4,
+        fontWeight: FontWeight.w800,
+        color: _StartupGateState._ink,
+      ),
+    );
+  }
+}

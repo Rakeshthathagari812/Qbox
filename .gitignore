@@ -1,0 +1,15 @@
+# Secrets: never upload these
+.env
+.env.*
+*.jks
+*.keystore
+key.properties
+local.properties
+
+# Build output and clutter
+**/android/build/
+**/android/.gradle/
+**/android/.kotlin/
+.DS_Store
+Thumbs.db
+desktop.ini
