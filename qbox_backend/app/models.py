@@ -19,6 +19,7 @@ from sqlalchemy import (
     Integer,
     String,
     Time,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -44,6 +45,25 @@ class OtpPurpose(str, enum.Enum):
 
     SIGNUP = "SIGNUP"
     RESET_PIN = "RESET_PIN"
+    UDHAAR_ADD = "UDHAAR_ADD"  # a shop adding this mobile to its udhaar book
+
+
+class EntryKind(str, enum.Enum):
+    """CREDIT = the shop gave goods on udhaar (customer owes more).
+    PAYMENT = the customer paid back (customer owes less)."""
+
+    CREDIT = "CREDIT"
+    PAYMENT = "PAYMENT"
+
+
+class Dispute(str, enum.Enum):
+    """A customer saying "this is not my number" about a shop's udhaar book.
+    The customer reports; only the shop decides."""
+
+    NONE = "NONE"
+    REPORTED = "REPORTED"  # customer reported, waiting for the shop
+    CONFIRMED = "CONFIRMED"  # shop says the number is right (cannot be reported again)
+    UNLINKED = "UNLINKED"  # shop agrees it is the wrong number: hidden from that phone
 
 
 class EventCategory(str, enum.Enum):
@@ -144,7 +164,7 @@ class OtpCode(Base):
 
     __tablename__ = "otp_codes"
     __table_args__ = (
-        CheckConstraint("purpose IN ('SIGNUP', 'RESET_PIN')", name="otp_codes_purpose_check"),
+        CheckConstraint("purpose IN ('SIGNUP', 'RESET_PIN', 'UDHAAR_ADD')", name="otp_codes_purpose_check"),
         Index("idx_otp_codes_lookup", "mobile", "purpose", "created_at"),
     )
 
@@ -157,6 +177,8 @@ class OtpCode(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # When the verification token made from this OTP was used (it works only once).
     token_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # For UDHAAR_ADD: the shop that asked. Only that shop can use the code.
+    requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -192,3 +214,50 @@ class Festival(Base):
     day: Mapped[date] = mapped_column(Date)
     name: Mapped[str] = mapped_column(String(80))
     region: Mapped[str] = mapped_column(String(10))
+
+
+class UdhaarCustomer(Base):
+    """One customer in one shop's udhaar book. The same person can be in many
+    shops' books; each shop sees only its own. Added only after OTP check."""
+
+    __tablename__ = "udhaar_customers"
+    __table_args__ = (
+        UniqueConstraint("shop_user_id", "mobile", name="udhaar_customers_shop_mobile_key"),
+        Index("idx_udhaar_customers_mobile", "mobile"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    shop_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80))
+    mobile: Mapped[str] = mapped_column(String(10))
+    credit_limit_paise: Mapped[int | None] = mapped_column(BigInteger)
+    verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # "This is not me": the customer reports, the shop decides (see Dispute).
+    dispute_status: Mapped[str] = mapped_column(String(10), default="NONE", server_default="NONE")
+    disputed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispute_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UdhaarEntry(Base):
+    """One credit or payment. Never erased: deleting sets deleted_at and a reason."""
+
+    __tablename__ = "udhaar_entries"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "client_ref", name="udhaar_entries_client_ref_key"),
+        Index("idx_udhaar_entries_customer", "customer_id", "entry_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("udhaar_customers.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(10))
+    amount_paise: Mapped[int] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(200))
+    entry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delete_reason: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

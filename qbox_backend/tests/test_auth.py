@@ -380,4 +380,4 @@ def test_production_refuses_development_settings():
         check_settings(Settings(app_env="production", otp_expose=False))  # still the development key
     with pytest.raises(ValueError):
         check_settings(Settings(app_env="production", jwt_secret=strong))  # OTP still sent back to the app
-    check_settings(Settings(app_env="production", jwt_secret=strong, otp_expose=False))
+    check_settings(Settings(app_env="production", jwt_secret=strong, otp_expose=False, ai_key="y" * 40))

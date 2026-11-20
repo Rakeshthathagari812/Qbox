@@ -1,6 +1,7 @@
 """Creating, sending and checking 6-digit OTPs. Codes are stored only as hashes."""
 
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
@@ -16,13 +17,18 @@ from app.security import check_secret, hash_secret
 _KEEP_FOR = timedelta(days=1)
 
 
-def _latest(db: Session, mobile: str, purpose: OtpPurpose, lock: bool = False) -> OtpCode | None:
+def _latest(
+    db: Session, mobile: str, purpose: OtpPurpose, requested_by: int | None = None, lock: bool = False
+) -> OtpCode | None:
     query = (
         select(OtpCode)
         .where(OtpCode.mobile == mobile, OtpCode.purpose == purpose.value)
         .order_by(OtpCode.created_at.desc(), OtpCode.id.desc())
         .limit(1)
     )
+    if requested_by is not None:
+        # A shop's code works only for that shop, even if two shops ask at once.
+        query = query.where(OtpCode.requested_by == requested_by)
     if lock:
         # Makes parallel requests for the same OTP wait their turn, so
         # firing many guesses at once cannot get past the attempt limit.
@@ -30,22 +36,36 @@ def _latest(db: Session, mobile: str, purpose: OtpPurpose, lock: bool = False) -
     return db.scalars(query).first()
 
 
-def send_otp(db: Session, mobile: str, purpose: OtpPurpose) -> str:
-    """Sends a new OTP and returns the code (only shown to the app in test mode)."""
+def send_otp(
+    db: Session,
+    mobile: str,
+    purpose: OtpPurpose,
+    requested_by: int | None = None,
+    message: Callable[[str, int], str] | None = None,
+) -> str:
+    """Sends a new OTP and returns the code (only shown to the app in test mode).
+    [message] builds the SMS text from (code, minutes valid)."""
     settings = get_settings()
     now = datetime.now(UTC)
 
-    last = _latest(db, mobile, purpose)
+    last = _latest(db, mobile, purpose, requested_by)
     if last is not None:
         waited = (now - last.created_at).total_seconds()
         if waited < settings.otp_resend_seconds:
             left = int(settings.otp_resend_seconds - waited) or 1
             raise ApiError(429, "OTP_TOO_SOON", f"Please wait {left} seconds before asking for a new OTP")
 
+    # Login codes and udhaar codes have separate hourly limits, so shops sending
+    # udhaar codes can never stop a person from getting their own login OTP.
+    is_udhaar = OtpCode.purpose == OtpPurpose.UDHAAR_ADD.value
     sent_last_hour = db.scalar(
         select(func.count())
         .select_from(OtpCode)
-        .where(OtpCode.mobile == mobile, OtpCode.created_at > now - timedelta(hours=1))
+        .where(
+            OtpCode.mobile == mobile,
+            OtpCode.created_at > now - timedelta(hours=1),
+            is_udhaar if purpose == OtpPurpose.UDHAAR_ADD else ~is_udhaar,
+        )
     )
     if sent_last_hour >= settings.otp_max_per_hour:
         raise ApiError(429, "OTP_LIMIT", "Too many OTPs for this number. Please try again after an hour")
@@ -56,21 +76,27 @@ def send_otp(db: Session, mobile: str, purpose: OtpPurpose) -> str:
         mobile=mobile,
         purpose=purpose.value,
         code_hash=hash_secret(code),
+        requested_by=requested_by,
         created_at=now,
         expires_at=now + timedelta(seconds=settings.otp_expiry_seconds),
     ))
     db.commit()
 
     minutes = settings.otp_expiry_seconds // 60
-    send_sms(mobile, f"{code} is your QBOX OTP. It is valid for {minutes} minutes. Do not share it with anyone.")
+    text = message(code, minutes) if message else (
+        f"{code} is your QBOX OTP. It is valid for {minutes} minutes. Do not share it with anyone."
+    )
+    send_sms(mobile, text)
     return code
 
 
-def verify_otp(db: Session, mobile: str, purpose: OtpPurpose, code: str) -> int:
+def verify_otp(
+    db: Session, mobile: str, purpose: OtpPurpose, code: str, requested_by: int | None = None
+) -> int:
     """Checks the most recent OTP for this mobile and purpose and uses it up if correct.
     Returns the OTP's id, which goes into the verification token."""
     settings = get_settings()
-    otp = _latest(db, mobile, purpose, lock=True)
+    otp = _latest(db, mobile, purpose, requested_by, lock=True)
     if otp is None or otp.consumed_at is not None:
         raise ApiError(400, "OTP_NOT_FOUND", "Please send the OTP first")
     if otp.expires_at < datetime.now(UTC):

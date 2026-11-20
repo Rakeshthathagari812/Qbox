@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'calculator/calculator_screen.dart';
 import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
+import 'translator/translator_screen.dart';
+import 'udhaar/udhaar_screen.dart';
 import 'widgets/qbox_wave.dart';
 import 'widgets/qr_mark.dart';
 import 'widgets/tool_tap.dart';
@@ -263,12 +265,12 @@ class _ToolGrid extends StatelessWidget {
   static const _tools = [
     _Tool(Icons.grid_view_rounded, 'Payments', drawn: _Drawn.payments, caption: '(Receive and track)'),
     _Tool(Icons.qr_code_2, 'QR & UPI'),
-    _Tool(Icons.groups_outlined, 'Udhaar'),
+    _Tool(Icons.groups_outlined, 'Udhaar', caption: '(Credit book)', opens: openUdhaar),
     _Tool(Icons.inventory_2_outlined, 'Stock', drawn: _Drawn.stock, caption: '(Inventory)'),
     _Tool(Icons.local_shipping_outlined, 'Supplier'),
     _Tool(Icons.calculate_outlined, 'Calculator', opens: openCalculator),
     _Tool(Icons.calendar_month_outlined, 'Calendar', opens: openShopCalendar),
-    _Tool(Icons.translate, 'Translator'),
+    _Tool(Icons.translate, 'Translator', caption: '(Voice, 5 languages)', opens: openTranslator),
     _Tool(Icons.auto_awesome, 'QBOX AI', caption: '(Voice assistant)'),
   ];
 

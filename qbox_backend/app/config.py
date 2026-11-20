@@ -11,6 +11,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_JWT_SECRET = "qbox-dev-only-secret-change-me-before-going-live-2026"
+DEV_AI_KEY = "qbox-ai-dev-only-key-change-me"
 
 
 class Settings(BaseSettings):
@@ -36,6 +37,22 @@ class Settings(BaseSettings):
     # back to the app. Set QBOX_OTP_EXPOSE=false once real SMS is connected.
     otp_expose: bool = True
 
+    # Udhaar: one shop may send this many "add customer" OTPs per hour (stops SMS misuse).
+    udhaar_invites_per_hour: int = 10
+
+    # QBOX AI server (folder qbox_ai): AI4Bharat IndicConformer speech-to-text and
+    # IndicTrans2 translation on our own machine. Empty URL = switched off, and the
+    # app uses the phone's own free speech/translation instead.
+    ai_url: str = "http://127.0.0.1:8090"
+    # Shared secret: must be the same as QBOX_AI_KEY in qbox_ai/.env. Change it when going live.
+    ai_key: str = DEV_AI_KEY
+    # Speech + translation requests one person may make per day (protects the AI server).
+    language_daily_limit: int = 300
+
+    @property
+    def ai_on(self) -> bool:
+        return bool(self.ai_url and self.ai_key)
+
     # Wrong-PIN lock: every 5th wrong PIN in a row locks the account.
     # The first lock is short; later ones are long, so guessing a 4-digit PIN is not practical.
     login_max_failed_attempts: int = 5
@@ -55,6 +72,9 @@ def check_settings(settings: Settings) -> Settings:
             raise ValueError("Set a private QBOX_JWT_SECRET before running in production")
         if settings.otp_expose:
             raise ValueError("Set QBOX_OTP_EXPOSE=false in production (OTPs must only go by SMS)")
+        if settings.ai_url and (settings.ai_key == DEV_AI_KEY or len(settings.ai_key) < 32):
+            raise ValueError("Set a private QBOX_AI_KEY (32+ characters) in production, "
+                             "the same in qbox_ai/.env")
     return settings
 
 

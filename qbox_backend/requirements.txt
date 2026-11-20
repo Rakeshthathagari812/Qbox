@@ -14,6 +14,8 @@ alembic>=1.14
 bcrypt>=4.2
 PyJWT>=2.10
 
+# Calls to the QBOX AI server (speech + translation); also used by tests
+httpx>=0.28
+
 # Tests
 pytest>=8.3
-httpx>=0.28

@@ -1,0 +1,32 @@
+"""Settings, from environment variables or qbox_ai/.env."""
+
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEV_KEY = "qbox-ai-dev-only-key-change-me"
+ROOT = Path(__file__).resolve().parent.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=ROOT / ".env", env_prefix="QBOX_AI_", extra="ignore")
+
+    # Shared secret: the QBOX backend sends it with every request (its QBOX_AI_KEY).
+    key: str = DEV_KEY
+    # Where download_models.py put the models.
+    models_dir: Path = ROOT / "models"
+    # Load the models when the server starts (takes about a minute), so the first
+    # person does not wait. False = load each one the first time it is needed.
+    preload: bool = True
+    # IndicConformer decoding: "rnnt" (more accurate) or "ctc" (faster).
+    asr_decoding: str = "rnnt"
+    # IndicTrans2 beam size: higher = a little better, slower.
+    num_beams: int = 4
+    # CPU threads for the models. 0 = let PyTorch decide.
+    threads: int = 0
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

@@ -51,9 +51,20 @@ VerificationToken = Annotated[str, Field(max_length=2000), needs("Please verify 
 Optional120 = Annotated[str | None, Field(max_length=120)]
 
 
+def _public_purpose(purpose: OtpPurpose) -> OtpPurpose:
+    """The login screens may only ask for SIGNUP or RESET_PIN codes. Udhaar codes
+    are sent only through the udhaar API, by a logged-in shop."""
+    if purpose not in (OtpPurpose.SIGNUP, OtpPurpose.RESET_PIN):
+        raise ValueError("Some details are missing or invalid")
+    return purpose
+
+
+PublicPurpose = Annotated[OtpPurpose, AfterValidator(_public_purpose)]
+
+
 class SendOtpIn(CamelModel):
     mobile: Mobile
-    purpose: OtpPurpose
+    purpose: PublicPurpose
 
 
 class SendOtpOut(CamelModel):
@@ -66,7 +77,7 @@ class SendOtpOut(CamelModel):
 
 class VerifyOtpIn(CamelModel):
     mobile: Mobile
-    purpose: OtpPurpose
+    purpose: PublicPurpose
     otp: Otp
 
 

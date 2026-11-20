@@ -18,7 +18,11 @@ class VoiceException implements Exception {
 abstract class VoiceInput {
   /// Listens until the person stops talking. [onWords] receives the words
   /// heard so far. Returns everything heard (may be empty).
-  Future<String> listen({required void Function(String words) onWords});
+  /// [localeId] picks the language heard, e.g. 'te_IN' for Telugu.
+  Future<String> listen({
+    required void Function(String words) onWords,
+    String localeId = 'en_IN',
+  });
 
   /// Stops listening early; [listen] then returns what was heard.
   Future<void> stop();
@@ -26,7 +30,11 @@ abstract class VoiceInput {
 
 /// Says text out loud.
 abstract class Speaker {
-  Future<void> say(String text);
+  /// Says [text] in the voice for [locale] (e.g. 'te-IN' for Telugu).
+  Future<void> say(String text, {String locale = 'en-IN'});
+
+  /// True if the phone has a voice for [locale].
+  Future<bool> hasVoice(String locale);
 
   Future<void> stop();
 }
@@ -39,7 +47,10 @@ class DeviceVoiceInput implements VoiceInput {
   String _heard = '';
 
   @override
-  Future<String> listen({required void Function(String words) onWords}) async {
+  Future<String> listen({
+    required void Function(String words) onWords,
+    String localeId = 'en_IN',
+  }) async {
     if (!_ready) {
       try {
         _ready = await _speech.initialize(
@@ -64,7 +75,7 @@ class DeviceVoiceInput implements VoiceInput {
         if (result.finalResult) _finish();
       },
       listenOptions: SpeechListenOptions(
-        localeId: 'en_IN',
+        localeId: localeId,
         listenFor: const Duration(seconds: 20),
         pauseFor: const Duration(seconds: 3),
         partialResults: true,
@@ -93,6 +104,9 @@ class DeviceVoiceInput implements VoiceInput {
       'error_permission' || 'error_insufficient_permissions' =>
         'Allow microphone access for QBOX in phone settings.',
       'error_busy' => 'The microphone is busy. Try again in a moment.',
+      'error_language_not_supported' || 'error_language_unavailable' =>
+        'This language is not set up for voice on this phone. '
+            'Add it in phone Settings > Languages > Voice typing.',
       _ => 'Could not hear you. Please try again.',
     };
     if (message == null) {
@@ -108,24 +122,34 @@ class DeviceVoiceInput implements VoiceInput {
   }
 }
 
-/// Uses the phone's text-to-speech voice, in Indian English.
+/// Uses the phone's text-to-speech voices (Indian English by default).
 class DeviceSpeaker implements Speaker {
   final FlutterTts _tts = FlutterTts();
-  bool _ready = false;
+  String? _locale;
 
   @override
-  Future<void> say(String text) async {
+  Future<void> say(String text, {String locale = 'en-IN'}) async {
     try {
-      if (!_ready) {
-        final available = await _tts.isLanguageAvailable('en-IN');
-        await _tts.setLanguage(available == true ? 'en-IN' : 'en-US');
+      if (_locale != locale) {
+        var use = locale;
+        if (locale == 'en-IN' && await _tts.isLanguageAvailable('en-IN') != true) use = 'en-US';
+        await _tts.setLanguage(use);
         await _tts.setSpeechRate(0.5);
-        _ready = true;
+        _locale = locale;
       }
       await _tts.stop();
       await _tts.speak(text);
     } catch (_) {
-      // Speaking is a bonus: never let it break the calculator.
+      // Speaking is a bonus: never let it break the screen.
+    }
+  }
+
+  @override
+  Future<bool> hasVoice(String locale) async {
+    try {
+      return await _tts.isLanguageAvailable(locale) == true;
+    } catch (_) {
+      return false;
     }
   }
 

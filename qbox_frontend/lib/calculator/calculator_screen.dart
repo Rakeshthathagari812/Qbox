@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/app_services.dart';
+import '../translator/indic_numbers.dart';
+import '../translator/languages.dart';
+import '../translator/voice_language.dart';
 import 'calculator_engine.dart';
+import 'spoken_operators.dart';
 import 'voice_math.dart';
 import 'voice_services.dart';
 
@@ -35,6 +39,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   String _heard = '';
   String? _message;
   Timer? _messageTimer;
+  AppLanguage _voiceLang = AppLanguage.english;
 
   AppServices get _app => _services!;
 
@@ -55,6 +60,8 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   }
 
   Future<void> _load() async {
+    final lang = await readVoiceLanguage(_app.settings);
+    if (mounted) setState(() => _voiceLang = lang);
     final saved = await _app.calculator.load();
     if (!mounted || saved == null) return;
     setState(() {
@@ -84,15 +91,47 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     _save();
     if (calculated && !_muted) {
       final value = _engine.result;
-      if (value != null) {
-        // Reads the whole sum back, so a wrong number is easy to catch.
-        unawaited(
-          _app.speaker.say(
-            spokenCalculation(_engine.evaluatedExpression, value),
-          ),
-        );
-      }
+      if (value != null) unawaited(_sayAnswer(value));
     }
+  }
+
+  /// English: reads the whole sum back, so a wrong number is easy to catch.
+  /// Other languages: says the answer in that language's voice (the phone
+  /// reads the number in Telugu/Hindi/...), or in English if it has no such voice.
+  Future<void> _sayAnswer(double value) async {
+    final lang = _voiceLang;
+    if (lang != AppLanguage.english && await _app.speaker.hasVoice(lang.voiceLocale)) {
+      await _app.speaker.say(formatPlain(value), locale: lang.voiceLocale);
+      return;
+    }
+    await _app.speaker.say(spokenCalculation(_engine.evaluatedExpression, value));
+  }
+
+  Future<void> _pickVoiceLanguage() async {
+    final picked = await pickVoiceLanguage(
+      context,
+      current: _voiceLang,
+      settings: _app.settings,
+      translator: _app.translator,
+    );
+    if (picked != null && mounted) setState(() => _voiceLang = picked);
+  }
+
+  /// The sum in what was said. Other languages: numbers and calculator words
+  /// are read on the phone ("రెండు వందల యాభై ప్లస్ నూట ఎనభై" -> 250+180), which
+  /// is exact and works offline. Only if that finds no sum is it translated.
+  Future<String?> _sumFrom(String words) async {
+    if (_voiceLang == AppLanguage.english) return parseSpokenMath(words);
+    final local = parseSpokenMath(operatorsToSymbols(numbersToDigits(words, _voiceLang), _voiceLang));
+    if (local != null) return local;
+    final english = await voiceToEnglish(
+      context,
+      words: words,
+      language: _voiceLang,
+      translator: _app.translator,
+      onError: _notify,
+    );
+    return (english == null ? null : parseSpokenMath(english)) ?? parseSpokenMath(words);
   }
 
   /// Shows a short message inside the display (never over the keys).
@@ -117,6 +156,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     });
     try {
       final words = await _app.voice.listen(
+        localeId: _voiceLang.speechLocale,
         onWords: (words) {
           if (mounted) setState(() => _heard = words);
         },
@@ -129,7 +169,9 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         );
         return;
       }
-      final sum = parseSpokenMath(words);
+      setState(() => _listening = false); // done hearing; may now ask for a language pack
+      final sum = await _sumFrom(words);
+      if (!mounted) return;
       if (sum == null) {
         _notify('Could not understand "$words". Try: 250 plus 180');
         return;
@@ -189,7 +231,14 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                 onSound: _toggleSound,
                 onHistory: _showHistory,
               ),
-              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: VoiceLanguageChip(
+                  key: const Key('calc-voice-lang'),
+                  language: _voiceLang,
+                  onPressed: _listening ? null : _pickVoiceLanguage,
+                ),
+              ),
               _Display(
                 engine: _engine,
                 listening: _listening,

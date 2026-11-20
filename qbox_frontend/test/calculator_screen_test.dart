@@ -232,7 +232,10 @@ class _HeldVoice implements VoiceInput {
   void finish() => _done.complete(_heard);
 
   @override
-  Future<String> listen({required void Function(String words) onWords}) {
+  Future<String> listen({
+    required void Function(String words) onWords,
+    String localeId = 'en_IN',
+  }) {
     _onWords = onWords;
     return _done.future;
   }

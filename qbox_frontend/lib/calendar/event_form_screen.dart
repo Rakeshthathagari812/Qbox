@@ -14,8 +14,14 @@ class EventFormScreen extends StatefulWidget {
     required this.draft,
     this.existing,
     this.fromVoice = false,
+    this.heard = '',
+    this.understood,
     super.key,
   });
+
+  /// What the phone heard, and (for other languages) its English meaning.
+  final String heard;
+  final String? understood;
 
   final QboxRole role;
   final EventDraft draft;
@@ -201,19 +207,36 @@ class _EventFormScreenState extends State<EventFormScreen> {
                     color: calSoft,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.mic_rounded, color: calPurple),
-                      SizedBox(width: 10),
+                      const Icon(Icons.mic_rounded, color: calPurple),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          'Here is what I understood. Check it, then tap Save.',
-                          style: TextStyle(
-                            fontFamily: 'Poppins',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: calPurple,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Here is what I understood. Check it, then tap Save.',
+                              style: TextStyle(
+                                fontFamily: 'Poppins',
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: calPurple,
+                              ),
+                            ),
+                            if (widget.heard.isNotEmpty)
+                              Text(
+                                'Heard: "${widget.heard}"',
+                                key: const Key('event-heard'),
+                                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: calBody),
+                              ),
+                            if (widget.understood != null)
+                              Text(
+                                'Meaning: "${widget.understood}"',
+                                key: const Key('event-understood'),
+                                style: const TextStyle(fontFamily: 'Poppins', fontSize: 12, color: calBody),
+                              ),
+                          ],
                         ),
                       ),
                     ],

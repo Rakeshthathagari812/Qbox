@@ -6,6 +6,8 @@ import '../calculator/voice_services.dart';
 import '../onboarding_draft.dart';
 import '../services/api_client.dart';
 import '../services/app_services.dart';
+import '../translator/languages.dart';
+import '../translator/voice_language.dart';
 import 'calendar_models.dart';
 import 'calendar_style.dart';
 import 'event_form_screen.dart';
@@ -45,6 +47,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _offline = false;
   bool _listening = false;
   String _heard = '';
+  AppLanguage _voiceLang = AppLanguage.english;
 
   AppServices get _app => _services!;
 
@@ -79,10 +82,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     // 1. Show the saved copy straight away (works offline).
     final events = await _app.calendarStore.loadEvents(widget.role);
     final festivals = await _app.calendarStore.loadFestivals();
+    final lang = await readVoiceLanguage(_app.settings);
     if (!mounted) return;
     setState(() {
       _events = events ?? const [];
       _festivals = festivals ?? const [];
+      _voiceLang = lang;
     });
     // 2. Then fetch the latest from the server.
     await _sync();
@@ -152,10 +157,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
     });
   }
 
+  Future<void> _pickVoiceLanguage() async {
+    final picked = await pickVoiceLanguage(
+      context,
+      current: _voiceLang,
+      settings: _app.settings,
+      translator: _app.translator,
+    );
+    if (picked != null && mounted) setState(() => _voiceLang = picked);
+  }
+
   Future<void> _openForm({
     required EventDraft draft,
     CalendarEvent? existing,
     bool fromVoice = false,
+    String heard = '',
+    String? understood,
   }) async {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -164,6 +181,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
           draft: draft,
           existing: existing,
           fromVoice: fromVoice,
+          heard: heard,
+          understood: understood,
         ),
       ),
     );
@@ -201,6 +220,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     });
     try {
       final words = await _app.voice.listen(
+        localeId: _voiceLang.speechLocale,
         onWords: (w) {
           if (mounted) setState(() => _heard = w);
         },
@@ -210,8 +230,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
         _notify('Did not hear anything. Tap Speak and say your reminder.');
         return;
       }
+      setState(() => _listening = false);
+      // Other languages: translated to English on the phone, then the date,
+      // time and title are read from that. The title is saved in English.
+      final english = await voiceToEnglish(
+        context,
+        words: words,
+        language: _voiceLang,
+        translator: _app.translator,
+        onError: _notify,
+      );
+      if (english == null || !mounted) return;
       final draft = parseSpokenEvent(
-        words,
+        english,
         widget.today ?? DateTime.now(),
         defaultCategory: _defaultCategory,
       );
@@ -221,8 +252,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
         );
         return;
       }
-      setState(() => _listening = false);
-      await _openForm(draft: draft, fromVoice: true);
+      await _openForm(
+        draft: draft,
+        fromVoice: true,
+        heard: words,
+        understood: _voiceLang == AppLanguage.english ? null : english,
+      );
     } on VoiceException catch (e) {
       if (mounted) _notify(e.message);
     } finally {
@@ -348,6 +383,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
             ),
             if (_listening) _ListeningBar(heard: _heard),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: VoiceLanguageChip(
+                  key: const Key('calendar-voice-lang'),
+                  language: _voiceLang,
+                  onPressed: _listening ? null : _pickVoiceLanguage,
+                ),
+              ),
+            ),
             _BottomBar(
               listening: _listening,
               onSpeak: _voiceAdd,

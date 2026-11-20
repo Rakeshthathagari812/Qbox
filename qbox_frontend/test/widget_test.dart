@@ -631,10 +631,34 @@ void backendTests() {
     await tester.tap(find.text('Business / Shop'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('tool-Udhaar')));
+    await tester.tap(find.byKey(const Key('tool-Stock')));
     await tester.pump(const Duration(milliseconds: 200)); // tile grow effect
     await tester.pump();
-    expect(find.text('Udhaar is coming soon'), findsOneWidget);
+    expect(find.text('Stock is coming soon'), findsOneWidget);
+  });
+
+  testWidgets('Udhaar tiles open the shop book and My Udhaar', (tester) async {
+    usePhone(tester);
+    await tester.pumpWidget(QboxApp(services: fakeServices()));
+    await tester.pumpAndSettle();
+    await _logInDemo(tester);
+
+    await tester.tap(find.text('Business / Shop'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('tool-Udhaar')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('udhaar-empty')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('udhaar-back')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('switch-role')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Customer'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('tool-My Udhaar')));
+    await tester.tap(find.byKey(const Key('tool-My Udhaar')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('myudhaar-empty')), findsOneWidget);
   });
 
   testWidgets('log out also clears the calculator history', (tester) async {

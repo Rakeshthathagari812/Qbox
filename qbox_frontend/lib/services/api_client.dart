@@ -34,11 +34,12 @@ class ApiClient {
 
   static const _timeout = Duration(seconds: 15);
 
-  Future<Object?> get(String path, {bool auth = true}) =>
-      _send('GET', path, auth: auth);
+  Future<Object?> get(String path, {bool auth = true, Duration? timeout}) =>
+      _send('GET', path, auth: auth, timeout: timeout);
 
-  Future<Object?> post(String path, Object body, {bool auth = true}) =>
-      _send('POST', path, body: body, auth: auth);
+  /// [timeout] is for slow work such as AI speech and translation.
+  Future<Object?> post(String path, Object body, {bool auth = true, Duration? timeout}) =>
+      _send('POST', path, body: body, auth: auth, timeout: timeout);
 
   Future<Object?> put(String path, Object body, {bool auth = true}) =>
       _send('PUT', path, body: body, auth: auth);
@@ -56,7 +57,9 @@ class ApiClient {
     Object? body,
     bool auth = false,
     String? accessToken,
+    Duration? timeout,
   }) async {
+    final wait = timeout ?? _timeout;
     final headers = <String, String>{
       if (body != null) 'Content-Type': 'application/json',
     };
@@ -71,8 +74,8 @@ class ApiClient {
         ..headers.addAll(headers);
       if (body != null) request.body = jsonEncode(body);
       response = await http.Response.fromStream(
-        await _client.send(request).timeout(_timeout),
-      ).timeout(_timeout);
+        await _client.send(request).timeout(wait),
+      ).timeout(wait);
     } on TimeoutException {
       throw const ApiException(
         'NETWORK',

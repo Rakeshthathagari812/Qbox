@@ -1,0 +1,26 @@
+# QBOX AI server: AI4Bharat IndicConformer (speech-to-text) + IndicTrans2 (translation).
+#
+# Install PyTorch first, the small CPU-only build (no graphics card needed):
+#   .venv\Scripts\python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# then:
+#   .venv\Scripts\python -m pip install -r requirements.txt
+
+# Web server
+fastapi>=0.115
+uvicorn>=0.32
+pydantic-settings>=2.6
+
+# Models
+# AI4Bharat's model code needs transformers 4 (version 5 removed parts it uses)
+transformers>=4.51,<5
+sentencepiece>=0.2
+onnxruntime>=1.20
+huggingface_hub>=0.30
+numpy>=2.1
+
+# English text preparation for IndicTrans2 (pure Python)
+sacremoses>=0.1.1
+
+# Tests
+pytest>=8.3
+httpx>=0.28

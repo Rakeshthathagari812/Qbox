@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'calculator/calculator_screen.dart';
 import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
+import 'translator/translator_screen.dart';
+import 'udhaar/my_udhaar_screen.dart';
 import 'widgets/qr_mark.dart';
 import 'widgets/qbox_wave.dart';
 import 'widgets/tool_tap.dart';
@@ -307,10 +309,10 @@ class _ToolGrid extends StatelessWidget {
   static const _tools = [
     _Tool('My QR', '(Customer ID)', qr: true),
     _Tool('Pay to Shop', '(UPI)', icon: Icons.account_balance_wallet_outlined),
-    _Tool('My Udhaar', '(Dues)', icon: Icons.receipt_long_outlined),
+    _Tool('My Udhaar', '(Dues)', icon: Icons.receipt_long_outlined, opens: openMyUdhaar),
     _Tool('My Shops', '(Linked Shops)', icon: Icons.storefront_outlined),
     _Tool('Transaction History', '', icon: Icons.history),
-    _Tool('Translator', '', icon: Icons.translate),
+    _Tool('Translator', '', icon: Icons.translate, opens: openTranslator),
     _Tool('Calculator', '', icon: Icons.calculate_outlined, opens: openCalculator),
     _Tool('Calendar', '', icon: Icons.calendar_month_outlined, opens: openCustomerCalendar),
     _Tool('Expenses Tracking', '', coins: true),

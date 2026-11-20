@@ -8,7 +8,16 @@ import 'package:qbox_app/models/qbox_user.dart';
 import 'package:qbox_app/onboarding_draft.dart';
 import 'package:qbox_app/services/app_services.dart';
 import 'package:qbox_app/services/auth_api.dart';
+import 'package:qbox_app/services/device_actions.dart';
+import 'package:qbox_app/services/language_api.dart';
 import 'package:qbox_app/services/session_store.dart';
+import 'package:qbox_app/services/settings_store.dart';
+import 'package:qbox_app/translator/languages.dart';
+import 'package:qbox_app/translator/translation_service.dart';
+import 'package:qbox_app/udhaar/udhaar_api.dart';
+import 'package:qbox_app/udhaar/udhaar_models.dart';
+import 'package:qbox_app/udhaar/udhaar_repository.dart';
+import 'package:qbox_app/udhaar/udhaar_store.dart';
 
 /// A pretend backend for widget tests. It follows the same rules as the
 /// FastAPI one: the OTP is always 123456, a mobile can register once,
@@ -180,9 +189,16 @@ class FakeVoiceInput implements VoiceInput {
   VoiceException? nextError;
   int listenCount = 0;
 
+  /// The language it was last asked to listen in.
+  String? lastLocale;
+
   @override
-  Future<String> listen({required void Function(String words) onWords}) async {
+  Future<String> listen({
+    required void Function(String words) onWords,
+    String localeId = 'en_IN',
+  }) async {
     listenCount++;
+    lastLocale = localeId;
     final error = nextError;
     if (error != null) throw error;
     onWords(nextWords);
@@ -193,12 +209,22 @@ class FakeVoiceInput implements VoiceInput {
   Future<void> stop() async {}
 }
 
-/// Pretend speaker: remembers what it was asked to say.
+/// Pretend speaker: remembers what it was asked to say, and in which voice.
 class FakeSpeaker implements Speaker {
   final List<String> said = [];
+  final List<String> locales = [];
+
+  /// Voices this pretend phone does NOT have.
+  final Set<String> missingVoices = {};
 
   @override
-  Future<void> say(String text) async => said.add(text);
+  Future<void> say(String text, {String locale = 'en-IN'}) async {
+    said.add(text);
+    locales.add(locale);
+  }
+
+  @override
+  Future<bool> hasVoice(String locale) async => !missingVoices.contains(locale);
 
   @override
   Future<void> stop() async {}
@@ -213,6 +239,11 @@ AppServices fakeServices({
   CalendarApi? calendar,
   CalendarStore? calendarStore,
   ReminderScheduler? reminders,
+  UdhaarApi? udhaar,
+  UdhaarStore? udhaarStore,
+  DeviceActions? device,
+  TextTranslator? translator,
+  SettingsStore? settings,
 }) {
   return AppServices(
     auth: api ?? FakeAuthApi(),
@@ -223,7 +254,350 @@ AppServices fakeServices({
     calendar: calendar ?? FakeCalendarApi(),
     calendarStore: calendarStore ?? MemoryCalendarStore(),
     reminders: reminders ?? FakeReminders(),
+    udhaar: UdhaarRepository(
+      udhaar ?? FakeUdhaarApi(),
+      udhaarStore ?? MemoryUdhaarStore(),
+    ),
+    device: device ?? FakeDeviceActions(),
+    translator: translator ?? FakeTranslator(),
+    settings: settings ?? MemorySettingsStore(),
   );
+}
+
+/// Pretend on-phone translator: answers from [phrases] (keyed by
+/// "from>to:text"), else returns "[to] text". Language packs can be missing.
+class FakeTranslator implements TextTranslator {
+  final Map<String, String> phrases = {};
+  final Set<AppLanguage> downloaded = {...AppLanguage.values};
+  final List<AppLanguage> downloads = [];
+  bool failDownloads = false;
+
+  @override
+  Future<bool> isReady(AppLanguage language) async => downloaded.contains(language);
+
+  @override
+  Future<bool> download(AppLanguage language) async {
+    downloads.add(language);
+    if (failDownloads) return false;
+    downloaded.add(language);
+    return true;
+  }
+
+  @override
+  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to}) async {
+    if (from == to) return text;
+    for (final l in {from, to}) {
+      if (!downloaded.contains(l)) {
+        throw TranslateException(
+          'No internet, and the ${l.englishName} offline pack is not downloaded yet.',
+          needsPack: true,
+        );
+      }
+    }
+    return phrases['${from.code}>${to.code}:$text'] ?? '[${to.code}] $text';
+  }
+}
+
+/// Pretend QBOX language server (IndicConformer + IndicTrans2).
+class FakeLanguageApi implements LanguageApi {
+  ApiException? error;
+  int translateCalls = 0;
+  String heard = '';
+  String? lastAudio;
+  bool online = true;
+  int statusCalls = 0;
+
+  @override
+  Future<bool> isOnline() async {
+    statusCalls++;
+    return online;
+  }
+
+  @override
+  Future<String> translate(String text, {required String from, required String to}) async {
+    translateCalls++;
+    final e = error;
+    if (e != null) throw e;
+    return 'online[$from>$to] $text';
+  }
+
+  @override
+  Future<String> speechToText(String wavBase64, {required String language, int samplingRate = 16000}) async {
+    lastAudio = wavBase64;
+    final e = error;
+    if (e != null) throw e;
+    return heard;
+  }
+}
+
+/// Pretend phone: remembers links it was asked to open; returns [nextContact].
+class FakeDeviceActions implements DeviceActions {
+  final List<Uri> opened = [];
+  PickedContact? nextContact;
+
+  /// Links with this scheme fail to open (e.g. 'whatsapp' = app not installed).
+  String? failScheme;
+
+  @override
+  Future<bool> openLink(Uri uri) async {
+    opened.add(uri);
+    return uri.scheme != failScheme;
+  }
+
+  @override
+  Future<PickedContact?> pickContact() async => nextContact;
+}
+
+/// Pretend udhaar server with the same rules as the FastAPI one: the add-
+/// customer code is always 123456, balances come from live entries, the same
+/// clientRef is kept once, deleted entries stay with a reason.
+class FakeUdhaarApi implements UdhaarApi {
+  static const otp = '123456';
+
+  final Map<int, UdhaarCustomer> customers = {};
+  final Map<int, List<UdhaarEntry>> entries = {};
+  final List<MyBook> books = [];
+  final Map<int, List<UdhaarEntry>> bookEntries = {};
+  final List<String> invitesSentTo = [];
+  bool offline = false;
+  int _nextId = 1;
+
+  void _check() {
+    if (offline) {
+      throw const ApiException(
+        'NETWORK',
+        'Cannot reach the QBOX server. Check your internet connection.',
+      );
+    }
+  }
+
+  /// Adds a customer directly (test setup).
+  UdhaarCustomer seed(String name, String mobile, {int? limitPaise, List<UdhaarEntry> history = const []}) {
+    final c = UdhaarCustomer(
+      id: _nextId++,
+      name: name,
+      mobile: mobile,
+      creditLimitPaise: limitPaise,
+    );
+    customers[c.id] = c;
+    entries[c.id] = List.of(history);
+    return _withBalance(c);
+  }
+
+  /// The customer reported "not me" (test setup for the shop side).
+  void report(int customerId) => _setDispute(customerId, Dispute.reported);
+
+  UdhaarCustomer _setDispute(int id, Dispute dispute, {String? mobile}) {
+    final c = customers[id]!;
+    customers[id] = UdhaarCustomer(
+      id: id,
+      name: c.name,
+      mobile: mobile ?? c.mobile,
+      creditLimitPaise: c.creditLimitPaise,
+      dispute: dispute,
+      disputedAt: dispute == Dispute.reported ? DateTime(2026, 11, 19, 11) : c.disputedAt,
+    );
+    return _withBalance(customers[id]!);
+  }
+
+  MyBook _setBookDispute(int bookId, Dispute dispute) {
+    final i = books.indexWhere((b) => b.bookId == bookId);
+    final b = books[i];
+    return books[i] = MyBook(
+      bookId: b.bookId,
+      shopName: b.shopName,
+      shopPhone: b.shopPhone,
+      balancePaise: b.balancePaise,
+      lastEntryAt: b.lastEntryAt,
+      dispute: dispute,
+      verifiedAt: b.verifiedAt,
+    );
+  }
+
+  UdhaarCustomer _withBalance(UdhaarCustomer c) {
+    final list = entries[c.id] ?? const [];
+    var balance = 0;
+    DateTime? last;
+    DateTime? lastPaid;
+    DateTime? firstCredit;
+    for (final e in list.where((e) => !e.deleted)) {
+      balance += e.effect;
+      if (last == null || e.entryAt.isAfter(last)) last = e.entryAt;
+      if (e.kind == EntryKind.payment && (lastPaid == null || e.entryAt.isAfter(lastPaid))) {
+        lastPaid = e.entryAt;
+      }
+      if (e.kind == EntryKind.credit && (firstCredit == null || e.entryAt.isBefore(firstCredit))) {
+        firstCredit = e.entryAt;
+      }
+    }
+    return UdhaarCustomer(
+      id: c.id,
+      name: c.name,
+      mobile: c.mobile,
+      creditLimitPaise: c.creditLimitPaise,
+      balancePaise: balance,
+      lastEntryAt: last,
+      owingSince: balance > 0 ? (lastPaid ?? firstCredit) : null,
+      dispute: c.dispute,
+      disputedAt: c.disputedAt,
+    );
+  }
+
+  List<UdhaarEntry> _sorted(int id) =>
+      List.of(entries[id] ?? const <UdhaarEntry>[])..sort((a, b) => b.entryAt.compareTo(a.entryAt));
+
+  @override
+  Future<UdhaarBook> book() async {
+    _check();
+    final list = customers.values.map(_withBalance).toList()
+      ..sort((a, b) => b.balancePaise.compareTo(a.balancePaise));
+    return UdhaarBook(list);
+  }
+
+  @override
+  Future<InviteSent> sendInvite(String name, String mobile) async {
+    _check();
+    if (customers.values.any((c) => c.mobile == mobile)) {
+      throw ApiException('CUSTOMER_EXISTS', '$name is already in your udhaar book with this number',
+          status: 409);
+    }
+    invitesSentTo.add(mobile);
+    return const InviteSent(resendInSeconds: 30, devOtp: otp);
+  }
+
+  @override
+  Future<UdhaarCustomer> addCustomer({
+    required String name,
+    required String mobile,
+    required String otp,
+    int? creditLimitPaise,
+  }) async {
+    _check();
+    if (otp != FakeUdhaarApi.otp) {
+      throw const ApiException('OTP_WRONG', 'Wrong OTP. Please check and try again', status: 400);
+    }
+    return seed(name, mobile, limitPaise: creditLimitPaise);
+  }
+
+  @override
+  Future<CustomerDetail> customer(int id) async {
+    _check();
+    return CustomerDetail(customer: _withBalance(customers[id]!), entries: _sorted(id));
+  }
+
+  @override
+  Future<UdhaarCustomer> changeCustomer(int id, {required String name, int? creditLimitPaise}) async {
+    _check();
+    final old = customers[id]!;
+    customers[id] = UdhaarCustomer(
+      id: id,
+      name: name,
+      mobile: old.mobile,
+      creditLimitPaise: creditLimitPaise,
+    );
+    return _withBalance(customers[id]!);
+  }
+
+  @override
+  Future<UdhaarEntry> addEntry(int customerId, EntryDraft draft) async {
+    _check();
+    final list = entries[customerId]!;
+    final existing = list.where((e) => e.clientRef == draft.clientRef).firstOrNull;
+    if (existing != null) return existing;
+    final entry = UdhaarEntry(
+      id: _nextId++,
+      kind: draft.kind,
+      amountPaise: draft.amountPaise,
+      entryAt: draft.entryAt,
+      clientRef: draft.clientRef,
+      note: draft.note.trim().isEmpty ? null : draft.note.trim(),
+    );
+    list.add(entry);
+    return entry;
+  }
+
+  @override
+  Future<UdhaarEntry> deleteEntry(int entryId, String reason) async {
+    _check();
+    for (final list in entries.values) {
+      final i = list.indexWhere((e) => e.id == entryId);
+      if (i < 0) continue;
+      final e = list[i];
+      list[i] = UdhaarEntry(
+        id: e.id,
+        kind: e.kind,
+        amountPaise: e.amountPaise,
+        entryAt: e.entryAt,
+        clientRef: e.clientRef,
+        note: e.note,
+        deletedAt: DateTime(2026, 11, 19, 16),
+        deleteReason: reason,
+      );
+      return list[i];
+    }
+    throw const ApiException('ENTRY_NOT_FOUND', 'This entry no longer exists', status: 404);
+  }
+
+  @override
+  Future<List<MyBook>> myBooks() async {
+    _check();
+    return books.where((b) => b.dispute != Dispute.unlinked).toList();
+  }
+
+  @override
+  Future<MyBookDetail> myBook(int bookId) async {
+    _check();
+    final book = books.firstWhere((b) => b.bookId == bookId);
+    return MyBookDetail(book: book, entries: bookEntries[bookId] ?? const []);
+  }
+
+  @override
+  Future<MyBook> notMe(int bookId) async {
+    _check();
+    final book = books.firstWhere((b) => b.bookId == bookId);
+    if (book.dispute == Dispute.confirmed) {
+      throw const ApiException('DISPUTE_CLOSED',
+          'The shop already confirmed this number is yours. Please talk to the shop', status: 409);
+    }
+    return book.dispute == Dispute.none ? _setBookDispute(bookId, Dispute.reported) : book;
+  }
+
+  @override
+  Future<MyBook> cancelNotMe(int bookId) async {
+    _check();
+    final book = books.firstWhere((b) => b.bookId == bookId);
+    return book.dispute == Dispute.reported ? _setBookDispute(bookId, Dispute.none) : book;
+  }
+
+  @override
+  Future<UdhaarCustomer> confirmDispute(int customerId) async => _decide(customerId, Dispute.confirmed);
+
+  @override
+  Future<UdhaarCustomer> unlinkDispute(int customerId) async => _decide(customerId, Dispute.unlinked);
+
+  UdhaarCustomer _decide(int id, Dispute decision) {
+    _check();
+    if (customers[id]!.dispute != Dispute.reported) {
+      throw const ApiException('NO_DISPUTE', 'There is no report to check for this customer', status: 409);
+    }
+    return _setDispute(id, decision);
+  }
+
+  @override
+  Future<InviteSent> sendNumberInvite(int customerId, String mobile) async {
+    _check();
+    invitesSentTo.add(mobile);
+    return const InviteSent(resendInSeconds: 30, devOtp: otp);
+  }
+
+  @override
+  Future<UdhaarCustomer> changeNumber(int customerId, String mobile, String code) async {
+    _check();
+    if (code != otp) {
+      throw const ApiException('OTP_WRONG', 'Wrong OTP. Please check and try again', status: 400);
+    }
+    return _setDispute(customerId, Dispute.none, mobile: mobile);
+  }
 }
 
 /// Pretend calendar server: keeps events in memory, per role.
