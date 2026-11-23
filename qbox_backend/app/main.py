@@ -9,7 +9,7 @@ API docs with "Try it out" buttons: http://localhost:8080/docs
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -20,6 +20,9 @@ from app.config import get_settings
 from app.database import engine
 from app.errors import register_error_handlers
 from app.language.router import router as language_router
+from app.payments.router import router as payments_router
+from app.stock.router import router as stock_router
+from app.suppliers.router import router as suppliers_router
 from app.udhaar.router import router as udhaar_router
 from app.users.router import router as users_router
 
@@ -37,11 +40,31 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs else None,
 )
 register_error_handlers(app)
+
+# The biggest real request is a voice recording (under 3 MB). Anything larger is
+# refused before it is read, so nobody can fill the server's memory.
+MAX_BODY_BYTES = 4 * 1024 * 1024
+
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next):
+    length = request.headers.get("content-length")
+    if length is not None and (not length.isdigit() or int(length) > MAX_BODY_BYTES):
+        return JSONResponse(status_code=413, content={"code": "TOO_LARGE", "message": "This request is too large"})
+    if length is None and "chunked" in request.headers.get("transfer-encoding", "").lower():
+        # A body of unknown size (the QBOX app always gives the size): refused.
+        return JSONResponse(status_code=411, content={"code": "LENGTH_REQUIRED", "message": "Request size missing"})
+    return await call_next(request)
+
+
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(calendar_router)
 app.include_router(udhaar_router)
 app.include_router(language_router)
+app.include_router(payments_router)
+app.include_router(stock_router)
+app.include_router(suppliers_router)
 
 
 @app.get("/health", tags=["Health"], summary="Is the server (and database) up?")

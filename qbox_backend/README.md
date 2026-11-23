@@ -54,6 +54,28 @@ this PC blocks the small `.exe` launchers (uvicorn.exe, alembic.exe) inside `.ve
 | GET | `/api/language/status` | Yes (is the QBOX AI server running?) |
 | POST | `/api/language/translate` | Yes (IndicTrans2 on the QBOX AI server) |
 | POST | `/api/language/speech-to-text` | Yes (IndicConformer on the QBOX AI server, WAV) |
+| GET | `/api/payments/settings` | Yes, shop (UPI ID, Razorpay status; never the secret) |
+| PUT | `/api/payments/settings/upi` | Yes, shop |
+| POST / DELETE | `/api/payments/settings/razorpay` | Yes, shop (keys checked with Razorpay, secret encrypted) |
+| POST | `/api/payments/collect` | Yes, shop (one-time QR for an amount) |
+| POST | `/api/payments/manual` | Yes, shop (paid to own UPI ID, confirmed by hand) |
+| GET | `/api/payments?day=` | Yes, shop (paid that day; today if empty) |
+| GET | `/api/payments/{id}` | Yes, the shop or the customer who paid (checks Razorpay while waiting) |
+| POST | `/api/payments/{id}/cancel` | Yes, shop |
+| POST | `/api/payments/udhaar/{book_id}` | Yes, customer (Razorpay order to pay udhaar) |
+| POST | `/api/payments/{id}/verify` | Yes, customer (payment screen's signature checked) |
+| GET | `/api/stock/items` | Yes, shop (own stock: quantities, value, low count) |
+| POST | `/api/stock/items`, `/api/stock/items/bulk` | Yes, shop (one item, or many from the ready list) |
+| GET / PUT | `/api/stock/items/{id}` | Yes, shop (item + history / change name, prices, alert) |
+| POST | `/api/stock/items/{id}/archive` | Yes, shop (off the list, history kept) |
+| POST | `/api/stock/items/{id}/moves` | Yes, shop (stock in, sold, or a correction with a reason) |
+| GET / POST | `/api/suppliers` | Yes, shop (own suppliers: balance, pay-by date, open orders / add) |
+| GET / PUT | `/api/suppliers/{id}` | Yes, shop (account history + orders / change details) |
+| POST | `/api/suppliers/{id}/archive` | Yes, shop (off the list, history kept) |
+| POST | `/api/suppliers/{id}/entries` | Yes, shop (purchase: items go into stock; or payment) |
+| POST | `/api/suppliers/entries/{id}/delete` | Yes, shop (kept with reason; purchase stock taken back out) |
+| POST | `/api/suppliers/{id}/orders` | Yes, shop (order sent on WhatsApp) |
+| POST | `/api/suppliers/orders/{id}/receive`, `/cancel` | Yes, shop (received = purchase, stock goes up) |
 | GET | `/health` | No |
 
 ## Folders
@@ -72,6 +94,11 @@ app/
   calendar/      events (per user and role) and the festival list
   udhaar/        credit book: customers (added by OTP), entries, "My Udhaar"
   language/      speech-to-text and translation (passes them to the QBOX AI server, ../qbox_ai)
+  stock/         items and stock moves (in, sold, corrected); quantity = sum of moves
+  suppliers/     suppliers, the shop's account with them, orders (purchases add stock via stock/)
+  payments/      Razorpay QR / orders, the shop's UPI ID, payments list
+                 (razorpay.py is the only file that talks to Razorpay; gateways.py picks the
+                 shop's account and encrypts its secret key)
 alembic/versions/  database table changes, applied in order
 tests/             automatic tests (use the qbox_test database)
 ```
@@ -105,7 +132,9 @@ $env:DISABLE_SQLALCHEMY_CEXT="1"
 ```
 
 `--no-binary SQLAlchemy` installs SQLAlchemy as pure Python. Windows Smart App
-Control on this PC blocks SQLAlchemy's optional compiled speed-up files.
+Control on this PC blocks SQLAlchemy's optional compiled speed-up files. For the
+same reason the database driver is `pg8000` (pure Python), not psycopg: Smart App
+Control blocks psycopg's `libpq` DLL.
 
 ## Security rules already built in
 
@@ -126,6 +155,34 @@ Control on this PC blocks SQLAlchemy's optional compiled speed-up files.
 | Udhaar: money in whole paise, balance always calculated, entries never erased (deleted = kept with reason) | `udhaar_entries` table |
 | Udhaar: the same entry sent twice (phone retry after offline) is kept once | `client_ref` |
 | Udhaar: "This is not me" is only a report; nothing is hidden until the shop unlinks it. Once the shop confirms, it cannot be reported again | `udhaar/service.not_me`, `_resolve` |
+| Stock: quantities in thousandths of the unit (1.5 kg = 1500), always the sum of the moves; moves never erased, corrections need a reason | `stock/service.py`, `stock_moves` table |
+| Stock: a shop sees only its own items; one live item per name; the same move sent twice is kept once | `stock/service.py`, `client_ref` |
+| Suppliers: balance always from entries; entries never erased (deleted = kept with reason); payments pay off the oldest purchases first for the pay-by date | `suppliers/service.py` |
+| Suppliers: a purchase's items go into stock through the stock rules; deleting it takes them back out with a correction | `stock.purchase_in`, `stock.purchase_undo` |
+| Payments: money goes straight to the shop's own Razorpay account / UPI ID, never through QBOX | `payments/gateways.py` |
+| Payments: the shop's Razorpay secret is stored encrypted and never sent to any phone | `gateways.lock`, `PaymentSettingsOut` |
+| Payments: PAID only when Razorpay says captured, for exactly the amount asked | `service._mark_paid` |
+| Payments: each Razorpay payment counted once; udhaar gets exactly one PAYMENT entry | `gateway_payment_id` unique, row lock, `client_ref` |
+| Payments: a customer's payment is checked with Razorpay's signature, then with Razorpay itself | `service.verify` |
+| Payments: a shop sees only its own payments; a customer only the ones they made | `service._visible` |
+| Payments: at most 60 QRs per shop / 10 udhaar payments per customer in 10 minutes | `service._check_rate` |
+
+## Payments (Razorpay)
+
+Each shop connects **its own** Razorpay account (Payment settings in the app), so money
+goes straight to the shop's bank. QBOX never holds anyone's money (that would need an RBI
+licence). A shop can also just save its own UPI ID: free, but the shop confirms each
+payment by hand.
+
+- **Counter:** a one-time UPI QR (Razorpay QR Codes). If QR Codes is not switched on for
+  the account, a Razorpay payment link is shown as the QR instead (scanned with the camera).
+- **Udhaar:** the customer pays in their QBOX app on Razorpay's own payment screen; the
+  backend checks the signature and asks Razorpay before the book changes.
+- **Testing on this PC:** put Razorpay **test** keys in `.env` as `QBOX_RAZORPAY_KEY_ID` /
+  `QBOX_RAZORPAY_KEY_SECRET`. Shops without their own account then use it (pretend money).
+  Refused in production.
+- Razorpay cannot reach this PC, so the backend asks Razorpay "is it paid?" while the app
+  waits. On the live server, add Razorpay webhooks and phone notifications (next phase).
 
 ## Festival list (update every year)
 
@@ -154,5 +211,8 @@ Set `QBOX_AI_URL=` (empty) to switch it off completely.
   - `QBOX_JWT_SECRET` is a private random value (32+ characters)
   - `QBOX_OTP_EXPOSE=false` (after an SMS provider is connected in `app/auth/sms.py`)
   - `QBOX_AI_KEY` is a private random value (32+ characters), the same in `qbox_ai/.env`
+  - `QBOX_PAYMENT_SECRET_KEY` is a private random value (32+ characters). Keep a safe copy:
+    without it, the saved Razorpay keys cannot be read and every shop must connect again
+  - `QBOX_RAZORPAY_KEY_ID` / `QBOX_RAZORPAY_KEY_SECRET` are removed (each shop uses its own account)
 - Set a real `QBOX_DATABASE_URL` with a strong password
 - Serve over HTTPS only, behind a proxy (e.g. Nginx/Cloudflare) that also limits requests per IP address

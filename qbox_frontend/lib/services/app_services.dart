@@ -5,6 +5,13 @@ import '../calculator/voice_services.dart';
 import '../calendar/calendar_api.dart';
 import '../calendar/calendar_store.dart';
 import '../calendar/reminders.dart';
+import '../payments/checkout.dart';
+import '../payments/payments_api.dart';
+import '../stock/stock_api.dart';
+import '../stock/stock_repository.dart';
+import '../stock/stock_store.dart';
+import '../suppliers/supplier_api.dart';
+import '../suppliers/supplier_repository.dart';
 import '../translator/speech_engines.dart';
 import '../translator/translation_service.dart';
 import '../udhaar/udhaar_api.dart';
@@ -34,6 +41,10 @@ class AppServices {
     required this.device,
     required this.translator,
     required this.settings,
+    required this.payments,
+    required this.checkout,
+    required this.stock,
+    required this.suppliers,
   });
 
   /// The real backend, on-phone storage, microphone, speaker and notifications.
@@ -57,11 +68,15 @@ class AppServices {
       calendar: HttpCalendarApi(api),
       calendarStore: PrefsCalendarStore(),
       reminders: LocalReminderScheduler(),
-      udhaar: UdhaarRepository(HttpUdhaarApi(api), PrefsUdhaarStore()),
+      udhaar: UdhaarRepository(HttpUdhaarApi(api), SecureUdhaarStore()),
       device: PhoneDeviceActions(),
       // The QBOX server (IndicTrans2); the on-phone translator when offline.
       translator: SmartTextTranslator(online: language, offline: OnDeviceTextTranslator()),
       settings: settings,
+      payments: HttpPaymentsApi(api),
+      checkout: RazorpayCheckout(),
+      stock: StockRepository(HttpStockApi(api), SecureStockStore()),
+      suppliers: SupplierRepository(HttpSupplierApi(api), SecureSupplierStore()),
     );
   }
 
@@ -82,6 +97,18 @@ class AppServices {
   /// Chosen languages and similar small settings.
   final SettingsStore settings;
 
+  /// Taking payments (shop) and paying udhaar (customer).
+  final PaymentsApi payments;
+
+  /// Razorpay's payment screen.
+  final Checkout checkout;
+
+  /// The shop's stock (server copy, phone copy, offline queue).
+  final StockRepository stock;
+
+  /// The shop's suppliers, its account with them, and orders.
+  final SupplierRepository suppliers;
+
   /// Forgets everything this user kept on the phone (log out, expired login).
   Future<void> forgetUserData() async {
     await session.clear();
@@ -89,6 +116,9 @@ class AppServices {
     await calendarStore.clear();
     await reminders.clearAll();
     await udhaar.clear();
+    await stock.clear();
+    await suppliers.clear();
+    await reminders.syncDues(const []);
   }
 }
 

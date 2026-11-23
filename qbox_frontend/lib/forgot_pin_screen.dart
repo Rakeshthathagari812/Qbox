@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
 import 'services/app_services.dart';
@@ -630,17 +632,7 @@ class _ResetHeader extends StatelessWidget {
         else
           const SizedBox(width: 42),
         const Expanded(
-          child: Text(
-            'QBOX',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 28,
-              height: 1,
-              fontWeight: FontWeight.w800,
-              color: _ink,
-            ),
-          ),
+          child: QboxWordmark(fontSize: 28, letterSpacing: 0, textAlign: TextAlign.center),
         ),
         const SizedBox(width: 42),
       ],

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/qbox_brand.dart';
+
 import 'login_screen.dart';
 import 'otp_screen.dart';
 import 'widgets/qbox_wave.dart';
@@ -228,17 +230,7 @@ class _BrandHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(28, 44, 28, 14),
       child: const Column(
         children: [
-          Text(
-            'QBOX',
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 40,
-              height: 1,
-              letterSpacing: 1.4,
-              fontWeight: FontWeight.w800,
-              color: WelcomeScreen._ink,
-            ),
-          ),
+          QboxWordmark(fontSize: 40, letterSpacing: 1.4),
           SizedBox(height: 8),
           Text(
             'Your Business. Simplified.',

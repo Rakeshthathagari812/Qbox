@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'onboarding_draft.dart';
 import 'phone_stage.dart';
 import 'services/app_services.dart';
+import 'splash_screen.dart';
 import 'startup_gate.dart';
 
 void main() {
@@ -15,14 +16,17 @@ void main() {
       statusBarBrightness: Brightness.light,
     ),
   );
-  runApp(QboxApp(services: AppServices.live()));
+  runApp(QboxApp(services: AppServices.live(), showSplash: true));
 }
 
 class QboxApp extends StatefulWidget {
-  const QboxApp({required this.services, super.key});
+  const QboxApp({required this.services, this.showSplash = false, super.key});
 
   /// The backend connection. Tests pass a fake one.
   final AppServices services;
+
+  /// The opening animation (QBOX lines, "powered by Quadrant IT Services").
+  final bool showSplash;
 
   @override
   State<QboxApp> createState() => _QboxAppState();
@@ -48,7 +52,7 @@ class _QboxAppState extends State<QboxApp> {
         builder: (context, child) {
           return PhoneStage(child: child ?? const SizedBox.shrink());
         },
-        home: const StartupGate(),
+        home: widget.showSplash ? const SplashScreen(next: StartupGate()) : const StartupGate(),
       ),
       ),
     );

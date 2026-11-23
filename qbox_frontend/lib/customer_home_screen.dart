@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
 import 'calculator/calculator_screen.dart';
@@ -60,16 +62,7 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Row(
       children: [
-        Text(
-          'QBOX',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 26,
-            height: 1,
-            fontWeight: FontWeight.w800,
-            color: _ink,
-          ),
-        ),
+        QboxWordmark(fontSize: 26, letterSpacing: 0),
         SizedBox(width: 10),
         DecoratedBox(
           decoration: BoxDecoration(

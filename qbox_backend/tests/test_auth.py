@@ -380,4 +380,55 @@ def test_production_refuses_development_settings():
         check_settings(Settings(app_env="production", otp_expose=False))  # still the development key
     with pytest.raises(ValueError):
         check_settings(Settings(app_env="production", jwt_secret=strong))  # OTP still sent back to the app
-    check_settings(Settings(app_env="production", jwt_secret=strong, otp_expose=False, ai_key="y" * 40))
+    ready = {"app_env": "production", "jwt_secret": strong, "otp_expose": False, "ai_key": "y" * 40,
+             "payment_secret_key": "p" * 40}
+    check_settings(Settings(**ready))
+    with pytest.raises(ValueError):  # still the development payment key
+        check_settings(Settings(**{**ready, "payment_secret_key": Settings().payment_secret_key}))
+    with pytest.raises(ValueError):  # one Razorpay account for every shop is not allowed
+        check_settings(Settings(**ready, razorpay_key_id="rzp_live_abcdefgh12", razorpay_key_secret="s" * 24))
+    assert not Settings(app_env="production", razorpay_key_id="rzp_test_x", razorpay_key_secret="y") \
+        .razorpay_test_account_on
+
+
+def test_otp_never_written_to_the_log_outside_test_mode(client, monkeypatch, caplog):
+    import logging
+
+    from app.auth import sms
+    from app.config import get_settings
+
+    # The test database setup (alembic) switches off existing loggers: switch this one back on.
+    monkeypatch.setattr(logging.getLogger("qbox.sms"), "disabled", False)
+    monkeypatch.setattr(get_settings(), "otp_expose", False)
+    with caplog.at_level(logging.INFO, logger="qbox.sms"):
+        sms.send_sms("9876543210", "123456 is your QBOX OTP")
+    assert "123456" not in caplog.text
+    assert "9876543210" not in caplog.text  # the number is masked too
+    assert "98******10" in caplog.text
+
+    caplog.clear()
+    monkeypatch.setattr(get_settings(), "otp_expose", True)  # test mode: shown, on purpose
+    with caplog.at_level(logging.INFO, logger="qbox.sms"):
+        sms.send_sms("9876543210", "123456 is your QBOX OTP")
+    assert "123456" in caplog.text
+
+
+def test_one_device_cannot_try_a_pin_on_many_numbers(client, monkeypatch):
+    from app import ratelimit
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "auth_requests_per_ip_10min", 5)
+    ratelimit.forget()
+    try:
+        for i in range(5):
+            r = client.post("/api/auth/login", json={"mobile": f"98765432{i:02d}", "pin": "1357"})
+            assert r.status_code == 401  # wrong, but allowed to try
+        r = client.post("/api/auth/login", json={"mobile": "9876543299", "pin": "1357"})
+        assert r.status_code == 429
+        assert r.json()["code"] == "TOO_MANY_REQUESTS"
+        # OTP requests from the same device count too
+        assert client.post("/api/auth/otp/send", json={"mobile": "9123456780", "purpose": "SIGNUP"}).status_code == 429
+        # Logged-in features are not affected
+        assert client.get("/health").status_code == 200
+    finally:
+        ratelimit.forget()

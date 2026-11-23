@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
 import 'onboarding_draft.dart';
@@ -421,17 +423,7 @@ class _OtpHeader extends StatelessWidget {
           icon: const Icon(Icons.arrow_back, size: 20),
         ),
         const Expanded(
-          child: Text(
-            'QBOX',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontFamily: 'Poppins',
-              fontSize: 28,
-              height: 1,
-              fontWeight: FontWeight.w800,
-              color: _ink,
-            ),
-          ),
+          child: QboxWordmark(fontSize: 28, letterSpacing: 0, textAlign: TextAlign.center),
         ),
         const SizedBox(width: 42),
       ],

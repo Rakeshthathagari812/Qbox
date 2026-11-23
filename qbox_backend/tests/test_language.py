@@ -185,10 +185,22 @@ def test_daily_limit_per_person(client, ai, monkeypatch):
     assert client.post("/api/language/translate", json=body, headers=other).status_code == 200
 
 
+def test_huge_requests_are_refused_before_reading(client):
+    me = _account(client, "9876543210")
+    big = b'{"audio": "' + b"A" * (5 * 1024 * 1024) + b'", "language": "te"}'
+    response = client.post("/api/language/speech-to-text", content=big,
+                           headers={**me, "Content-Type": "application/json"})
+    assert response.status_code == 413
+    assert response.json()["code"] == "TOO_LARGE"
+    response = client.post("/api/language/translate", content=b"{}",
+                           headers={**me, "Content-Length": "abc", "Content-Type": "application/json"})
+    assert response.status_code in (400, 413)
+
+
 def test_production_needs_a_private_ai_key():
     from app.config import DEV_AI_KEY, Settings, check_settings
 
-    base = dict(app_env="production", jwt_secret="x" * 40, otp_expose=False)
+    base = dict(app_env="production", jwt_secret="x" * 40, otp_expose=False, payment_secret_key="p" * 40)
     with pytest.raises(ValueError, match="QBOX_AI_KEY"):
         check_settings(Settings(**base, ai_key=DEV_AI_KEY))
     check_settings(Settings(**base, ai_key="y" * 40))

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/qbox_brand.dart';
+
 import 'customer_home_screen.dart';
 import 'onboarding_draft.dart';
 import 'services/app_services.dart';
@@ -32,18 +34,7 @@ class ChooseRoleScreen extends StatelessWidget {
               child: SignupColumn(
                 padding: const EdgeInsets.fromLTRB(20, 28, 20, 108),
                 children: [
-                  const Text(
-                    'QBOX',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 34,
-                      height: 1,
-                      letterSpacing: 0.6,
-                      fontWeight: FontWeight.w800,
-                      color: _ink,
-                    ),
-                  ),
+                  const QboxWordmark(fontSize: 34, letterSpacing: 0.6, textAlign: TextAlign.center),
                   const SizedBox(height: 22),
                   const Text(
                     'Choose Your Role',

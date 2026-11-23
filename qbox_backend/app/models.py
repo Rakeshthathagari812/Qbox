@@ -76,6 +76,76 @@ class EventCategory(str, enum.Enum):
     OTHER = "OTHER"
 
 
+class PaymentSource(str, enum.Enum):
+    """COUNTER = a QR shown at the counter (Razorpay tells us when it is paid).
+    UDHAAR = a customer paid their udhaar from their own QBOX app.
+    MANUAL = paid to the shop's own UPI ID; the shop confirmed it by hand."""
+
+    COUNTER = "COUNTER"
+    UDHAAR = "UDHAAR"
+    MANUAL = "MANUAL"
+
+
+class PaymentStatus(str, enum.Enum):
+    WAITING = "WAITING"
+    PAID = "PAID"
+    EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"
+
+
+class Gateway(str, enum.Enum):
+    """Which Razorpay feature collects the money."""
+
+    QR_CODE = "QR_CODE"  # a one-time UPI QR for a fixed amount
+    PAYMENT_LINK = "PAYMENT_LINK"  # a payment page; its link is shown as a QR
+    ORDER = "ORDER"  # Razorpay's payment screen inside the customer's QBOX app
+
+
+class StockUnit(str, enum.Enum):
+    """How an item is counted. Quantities are stored in thousandths of the unit
+    (1.5 kg = 1500), so loose goods never drift by rounding."""
+
+    KG = "KG"
+    G = "G"
+    L = "L"
+    ML = "ML"
+    PIECE = "PIECE"
+    PACKET = "PACKET"
+    BOX = "BOX"
+    DOZEN = "DOZEN"
+    BAG = "BAG"
+
+
+class StockMoveKind(str, enum.Enum):
+    """IN = stock came in (bought). OUT = sold or used.
+    ADJUST = the count was corrected (damaged, expired, counted wrong): + or -, with a reason."""
+
+    IN = "IN"
+    OUT = "OUT"
+    ADJUST = "ADJUST"
+
+
+class SupplierEntryKind(str, enum.Enum):
+    """PURCHASE = goods bought from the supplier (the shop owes more).
+    PAYMENT = the shop paid the supplier (owes less)."""
+
+    PURCHASE = "PURCHASE"
+    PAYMENT = "PAYMENT"
+
+
+class PayMethod(str, enum.Enum):
+    CASH = "CASH"
+    UPI = "UPI"
+    BANK = "BANK"
+    OTHER = "OTHER"
+
+
+class OrderStatus(str, enum.Enum):
+    SENT = "SENT"  # sent to the supplier (WhatsApp), waiting for the goods
+    RECEIVED = "RECEIVED"  # goods came: recorded as a purchase, stock went up
+    CANCELLED = "CANCELLED"
+
+
 class Repeat(str, enum.Enum):
     NONE = "NONE"
     DAILY = "DAILY"
@@ -260,4 +330,198 @@ class UdhaarEntry(Base):
     client_ref: Mapped[str] = mapped_column(String(40))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delete_reason: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StockItem(Base):
+    """One item a shop keeps in stock. Its quantity is always calculated from
+    its moves, so it can never go out of step with the history."""
+
+    __tablename__ = "stock_items"
+    __table_args__ = (
+        UniqueConstraint("shop_user_id", "client_ref", name="stock_items_client_ref_key"),
+        Index("idx_stock_items_shop", "shop_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    shop_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80))
+    # The built-in item it came from (names in 5 languages live in the app).
+    catalog_code: Mapped[str | None] = mapped_column(String(40))
+    unit: Mapped[str] = mapped_column(String(10))
+    cost_paise: Mapped[int | None] = mapped_column(BigInteger)  # buying price per unit
+    price_paise: Mapped[int | None] = mapped_column(BigInteger)  # selling price per unit
+    alert_milli: Mapped[int | None] = mapped_column(BigInteger)  # "running low" at or below this
+    client_ref: Mapped[str] = mapped_column(String(40))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class StockMove(Base):
+    """Stock in, out or corrected. Never erased: a mistake is fixed with a correction."""
+
+    __tablename__ = "stock_moves"
+    __table_args__ = (
+        UniqueConstraint("item_id", "client_ref", name="stock_moves_client_ref_key"),
+        Index("idx_stock_moves_item", "item_id", "move_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("stock_items.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(10))
+    # IN and OUT: always positive. ADJUST: + or - (the change to the count).
+    qty_milli: Mapped[int] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(200))
+    move_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Supplier(Base):
+    """Someone the shop buys from. The shop's own record: no OTP needed."""
+
+    __tablename__ = "suppliers"
+    __table_args__ = (
+        UniqueConstraint("shop_user_id", "client_ref", name="suppliers_client_ref_key"),
+        Index("idx_suppliers_shop", "shop_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    shop_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80))
+    mobile: Mapped[str | None] = mapped_column(String(10))
+    supplies: Mapped[str | None] = mapped_column(String(200))  # "Rice, dal, oil"
+    note: Mapped[str | None] = mapped_column(String(300))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SupplierEntry(Base):
+    """A purchase or a payment in the shop's account with a supplier.
+    Never erased: deleting sets deleted_at and a reason."""
+
+    __tablename__ = "supplier_entries"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "client_ref", name="supplier_entries_client_ref_key"),
+        Index("idx_supplier_entries_supplier", "supplier_id", "entry_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(10))
+    amount_paise: Mapped[int] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(200))
+    entry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    due_date: Mapped[date | None] = mapped_column(Date)  # purchases on credit: pay by
+    method: Mapped[str | None] = mapped_column(String(10))  # payments: cash / UPI / bank
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_orders.id", ondelete="SET NULL"))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delete_reason: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SupplierEntryLine(Base):
+    """An item bought in a purchase. Each line added a stock move (stock in)."""
+
+    __tablename__ = "supplier_entry_lines"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    entry_id: Mapped[int] = mapped_column(ForeignKey("supplier_entries.id", ondelete="CASCADE"), index=True)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(80))  # the item's name at the time
+    unit: Mapped[str] = mapped_column(String(10))
+    qty_milli: Mapped[int] = mapped_column(BigInteger)
+    cost_paise: Mapped[int | None] = mapped_column(BigInteger)  # per unit
+
+
+class SupplierOrder(Base):
+    """An order sent to a supplier (by WhatsApp). Received = a purchase."""
+
+    __tablename__ = "supplier_orders"
+    __table_args__ = (
+        UniqueConstraint("supplier_id", "client_ref", name="supplier_orders_client_ref_key"),
+        Index("idx_supplier_orders_supplier", "supplier_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(10))
+    note: Mapped[str | None] = mapped_column(String(200))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SupplierOrderLine(Base):
+    __tablename__ = "supplier_order_lines"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("supplier_orders.id", ondelete="CASCADE"), index=True)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(80))
+    unit: Mapped[str] = mapped_column(String(10))
+    qty_milli: Mapped[int] = mapped_column(BigInteger)
+
+
+class ShopPaymentSettings(Base):
+    """How a shop takes payments: its own UPI ID, and/or its own Razorpay account.
+    The Razorpay secret key is stored encrypted and never sent to any phone."""
+
+    __tablename__ = "shop_payment_settings"
+
+    shop_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    upi_id: Mapped[str | None] = mapped_column(String(60))
+    upi_name: Mapped[str | None] = mapped_column(String(60))
+    razorpay_key_id: Mapped[str | None] = mapped_column(String(40))
+    razorpay_secret: Mapped[str | None] = mapped_column(String(500))  # encrypted
+    razorpay_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Payment(Base):
+    """One payment to a shop: asked for (WAITING), then PAID, EXPIRED or CANCELLED.
+    A Razorpay payment is counted only once (gateway_payment_id is unique)."""
+
+    __tablename__ = "payments"
+    __table_args__ = (
+        UniqueConstraint("shop_user_id", "client_ref", name="payments_shop_client_ref_key"),
+        Index("idx_payments_shop", "shop_user_id", "status", "paid_at"),
+        CheckConstraint("source IN ('COUNTER', 'UDHAAR', 'MANUAL')", name="payments_source_check"),
+        CheckConstraint("status IN ('WAITING', 'PAID', 'EXPIRED', 'CANCELLED')", name="payments_status_check"),
+        CheckConstraint("amount_paise > 0", name="payments_amount_check"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    shop_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(10))
+    amount_paise: Mapped[int] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(100))
+    # Set when the payment is for udhaar: a PAYMENT entry is added there once paid.
+    udhaar_customer_id: Mapped[int | None] = mapped_column(ForeignKey("udhaar_customers.id", ondelete="SET NULL"))
+    udhaar_entry_id: Mapped[int | None] = mapped_column(ForeignKey("udhaar_entries.id", ondelete="SET NULL"))
+    # The customer who paid from their own QBOX app (UDHAAR payments).
+    payer_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    gateway: Mapped[str | None] = mapped_column(String(15))
+    gateway_ref: Mapped[str | None] = mapped_column(String(40), unique=True)  # qr_..., plink_..., order_...
+    gateway_key_id: Mapped[str | None] = mapped_column(String(40))  # which Razorpay account
+    qr_image_url: Mapped[str | None] = mapped_column(String(300))
+    pay_url: Mapped[str | None] = mapped_column(String(300))
+    gateway_payment_id: Mapped[str | None] = mapped_column(String(40), unique=True)  # pay_...
+    payer_vpa: Mapped[str | None] = mapped_column(String(100))
+    method: Mapped[str | None] = mapped_column(String(20))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
 import 'choose_role_screen.dart';
@@ -105,18 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               icon: const Icon(Icons.arrow_back, size: 20),
                             ),
                             const Expanded(
-                              child: Text(
-                                'QBOX',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontFamily: 'Poppins',
-                                  fontSize: 34,
-                                  height: 1,
-                                  letterSpacing: 0.6,
-                                  fontWeight: FontWeight.w800,
-                                  color: _ink,
-                                ),
-                              ),
+                              child: QboxWordmark(fontSize: 34, letterSpacing: 0.6, textAlign: TextAlign.center),
                             ),
                             const SizedBox(width: 42),
                           ],

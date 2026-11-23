@@ -46,6 +46,8 @@ dependencies:
   flutter_native_contact_picker: ^0.0.13
   google_mlkit_translation: ^1.0.3
   record: ^7.2.0
+  razorpay_flutter: ^1.4.7
+  qr_flutter: ^4.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -56,6 +58,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  image: ^4.13.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -82,6 +86,9 @@ flutter:
     - assets/images/art_pin.png
     - assets/images/art_success.png
     - assets/images/icon_shop.png
+
+    - assets/images/qbox_logo_lines.png
+    - assets/images/qbox_logo_order.png
 
   fonts:
     - family: Poppins
@@ -121,3 +128,15 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# App icon: made from assets/branding/ by `dart run tool/make_brand_images.dart`,
+# then installed with `dart run flutter_launcher_icons`.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/branding/qbox_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/branding/qbox_icon_foreground.png"
+  # No extra margin: the design itself is sized for the icon shape.
+  adaptive_icon_foreground_inset: 0
+  min_sdk_android: 21

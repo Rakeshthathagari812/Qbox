@@ -7,8 +7,14 @@ Create it once:
 import os
 
 os.environ.setdefault(
-    "QBOX_DATABASE_URL", "postgresql+psycopg://qbox:qbox_dev_2026@localhost:5432/qbox_test"
+    "QBOX_DATABASE_URL", "postgresql+pg8000://qbox:qbox_dev_2026@localhost:5432/qbox_test"
 )
+# All test requests come from one address; the per-device limit has its own test.
+os.environ.setdefault("QBOX_AUTH_REQUESTS_PER_IP_10MIN", "0")
+# Tests never touch a real Razorpay account (the test keys in .env are ignored);
+# payment tests use a pretend Razorpay.
+os.environ["QBOX_RAZORPAY_KEY_ID"] = ""
+os.environ["QBOX_RAZORPAY_KEY_SECRET"] = ""
 
 import pytest  # noqa: E402
 from alembic import command  # noqa: E402

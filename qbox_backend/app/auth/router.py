@@ -15,8 +15,10 @@ from app.auth.schemas import (
     VerifyOtpOut,
 )
 from app.database import get_db
+from app.ratelimit import limit_auth_requests
 
-router = APIRouter(prefix="/api/auth", tags=["Login & sign up"])
+# Every auth request counts toward the per-device limit (see app/ratelimit.py).
+router = APIRouter(prefix="/api/auth", tags=["Login & sign up"], dependencies=[Depends(limit_auth_requests)])
 
 
 @router.post("/otp/send", response_model=SendOtpOut, summary="Send an OTP for SIGNUP or RESET_PIN")

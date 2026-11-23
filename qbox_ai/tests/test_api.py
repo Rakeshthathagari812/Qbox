@@ -2,6 +2,7 @@
 
 import base64
 import io
+import logging
 import wave
 
 import pytest
@@ -109,14 +110,17 @@ def test_still_loading(fake):
     assert fake.get("/health", headers=KEY).json()["ready"] is False
 
 
-def test_model_problems(fake):
+def test_model_problems(fake, caplog):
     body = {"text": "a", "source": "en", "target": "te"}
     fake.models.error = ModelMissing("en-indic")
     assert fake.post("/translate", json=body, headers=KEY).status_code == 503
     fake.models.error = RuntimeError("secret words")
-    response = fake.post("/translate", json=body, headers=KEY)
+    with caplog.at_level(logging.INFO, logger="qbox.ai"):
+        response = fake.post("/translate", json=body, headers=KEY)
     assert response.status_code == 500
     assert "secret" not in response.text
+    assert "secret" not in caplog.text  # nor in the server log
+    assert "RuntimeError" in caplog.text
 
 
 def test_input_checks(fake):

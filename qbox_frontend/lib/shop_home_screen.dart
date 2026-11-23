@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/qbox_brand.dart';
+
 import 'calculator/calculator_screen.dart';
 import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
+import 'payments/collect_screen.dart';
+import 'payments/payments_screen.dart';
+import 'services/app_services.dart';
+import 'stock/stock_screen.dart';
+import 'suppliers/suppliers_screen.dart';
 import 'translator/translator_screen.dart';
 import 'udhaar/udhaar_screen.dart';
 import 'widgets/qbox_wave.dart';
@@ -57,16 +64,7 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return const Row(
       children: [
-        Text(
-          'QBOX',
-          style: TextStyle(
-            fontFamily: 'Poppins',
-            fontSize: 26,
-            height: 1,
-            fontWeight: FontWeight.w800,
-            color: _ink,
-          ),
-        ),
+        QboxWordmark(fontSize: 26, letterSpacing: 0),
         Spacer(),
         _Bell(),
         SizedBox(width: 10),
@@ -263,11 +261,13 @@ class _ToolGrid extends StatelessWidget {
   const _ToolGrid();
 
   static const _tools = [
-    _Tool(Icons.grid_view_rounded, 'Payments', drawn: _Drawn.payments, caption: '(Receive and track)'),
-    _Tool(Icons.qr_code_2, 'QR & UPI'),
+    _Tool(Icons.grid_view_rounded, 'Payments', drawn: _Drawn.payments, caption: '(Receive and track)',
+        opens: openPayments),
+    _Tool(Icons.qr_code_2, 'QR & UPI', caption: '(Collect now)', opens: openCollect),
     _Tool(Icons.groups_outlined, 'Udhaar', caption: '(Credit book)', opens: openUdhaar),
-    _Tool(Icons.inventory_2_outlined, 'Stock', drawn: _Drawn.stock, caption: '(Inventory)'),
-    _Tool(Icons.local_shipping_outlined, 'Supplier'),
+    _Tool(Icons.inventory_2_outlined, 'Stock', drawn: _Drawn.stock, caption: '(Inventory)', opens: openStock,
+        lowStockBadge: true),
+    _Tool(Icons.local_shipping_outlined, 'Supplier', caption: '(Buy and pay)', opens: openSuppliers),
     _Tool(Icons.calculate_outlined, 'Calculator', opens: openCalculator),
     _Tool(Icons.calendar_month_outlined, 'Calendar', opens: openShopCalendar),
     _Tool(Icons.translate, 'Translator', caption: '(Voice, 5 languages)', opens: openTranslator),
@@ -293,12 +293,15 @@ class _ToolGrid extends StatelessWidget {
 enum _Drawn { payments, stock }
 
 class _Tool {
-  const _Tool(this.icon, this.label, {this.drawn, this.caption = '', this.opens});
+  const _Tool(this.icon, this.label, {this.drawn, this.caption = '', this.opens, this.lowStockBadge = false});
 
   final IconData icon;
   final String label;
   final _Drawn? drawn;
   final String caption;
+
+  /// Shows a red count of items running low.
+  final bool lowStockBadge;
 
   /// The screen this tile opens, once the feature is built.
   final WidgetBuilder? opens;
@@ -331,14 +334,20 @@ class _ToolTile extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            switch (tool.drawn) {
-              _Drawn.payments => const QrMark(size: 38),
-              _Drawn.stock => const CustomPaint(
-                  size: Size.square(38),
-                  painter: _StockIconPainter(),
-                ),
-              null => Icon(tool.icon, color: _purple, size: 38),
-            },
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                switch (tool.drawn) {
+                  _Drawn.payments => const QrMark(size: 38),
+                  _Drawn.stock => const CustomPaint(
+                      size: Size.square(38),
+                      painter: _StockIconPainter(),
+                    ),
+                  null => Icon(tool.icon, color: _purple, size: 38),
+                },
+                if (tool.lowStockBadge) const Positioned(top: -6, right: -10, child: _LowStockBadge()),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               tool.label,
@@ -371,6 +380,44 @@ class _ToolTile extends StatelessWidget {
         ),
       ),
       ),
+    );
+  }
+}
+
+/// Red count of items running low (from the stock saved on the phone).
+class _LowStockBadge extends StatefulWidget {
+  const _LowStockBadge();
+
+  @override
+  State<_LowStockBadge> createState() => _LowStockBadgeState();
+}
+
+class _LowStockBadgeState extends State<_LowStockBadge> {
+  bool _loaded = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    _loaded = true;
+    ServicesScope.of(context).stock.savedBook(); // fills in the count
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: ServicesScope.of(context).stock.lowCount,
+      builder: (context, low, _) => low == 0
+          ? const SizedBox.shrink()
+          : Container(
+              key: const Key('stock-low-badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(color: const Color(0xFFE11D48), borderRadius: BorderRadius.circular(10)),
+              child: Text(
+                '$low',
+                style: const TextStyle(fontFamily: 'Poppins', fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+              ),
+            ),
     );
   }
 }

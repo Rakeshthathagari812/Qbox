@@ -6,18 +6,33 @@ import 'package:qbox_app/calendar/calendar_store.dart';
 import 'package:qbox_app/calendar/reminders.dart';
 import 'package:qbox_app/models/qbox_user.dart';
 import 'package:qbox_app/onboarding_draft.dart';
+import 'package:qbox_app/payments/checkout.dart';
+import 'package:qbox_app/payments/payments_api.dart';
 import 'package:qbox_app/services/app_services.dart';
 import 'package:qbox_app/services/auth_api.dart';
 import 'package:qbox_app/services/device_actions.dart';
 import 'package:qbox_app/services/language_api.dart';
 import 'package:qbox_app/services/session_store.dart';
 import 'package:qbox_app/services/settings_store.dart';
+import 'package:qbox_app/stock/stock_api.dart';
+import 'package:qbox_app/stock/stock_repository.dart';
+import 'package:qbox_app/stock/stock_store.dart';
+import 'package:qbox_app/suppliers/supplier_api.dart';
+import 'package:qbox_app/suppliers/supplier_repository.dart';
 import 'package:qbox_app/translator/languages.dart';
 import 'package:qbox_app/translator/translation_service.dart';
 import 'package:qbox_app/udhaar/udhaar_api.dart';
 import 'package:qbox_app/udhaar/udhaar_models.dart';
 import 'package:qbox_app/udhaar/udhaar_repository.dart';
 import 'package:qbox_app/udhaar/udhaar_store.dart';
+
+import 'fake_payments.dart';
+import 'fake_stock.dart';
+import 'fake_suppliers.dart';
+
+export 'fake_payments.dart';
+export 'fake_stock.dart';
+export 'fake_suppliers.dart';
 
 /// A pretend backend for widget tests. It follows the same rules as the
 /// FastAPI one: the OTP is always 123456, a mobile can register once,
@@ -244,6 +259,12 @@ AppServices fakeServices({
   DeviceActions? device,
   TextTranslator? translator,
   SettingsStore? settings,
+  PaymentsApi? payments,
+  Checkout? checkout,
+  StockApi? stock,
+  StockStore? stockStore,
+  SupplierApi? suppliers,
+  SupplierStore? supplierStore,
 }) {
   return AppServices(
     auth: api ?? FakeAuthApi(),
@@ -261,6 +282,10 @@ AppServices fakeServices({
     device: device ?? FakeDeviceActions(),
     translator: translator ?? FakeTranslator(),
     settings: settings ?? MemorySettingsStore(),
+    payments: payments ?? FakePaymentsApi(),
+    checkout: checkout ?? FakeCheckout(),
+    stock: StockRepository(stock ?? FakeStockApi(), stockStore ?? MemoryStockStore()),
+    suppliers: SupplierRepository(suppliers ?? FakeSupplierApi(), supplierStore ?? MemorySupplierStore()),
   );
 }
 
@@ -693,4 +718,18 @@ class FakeReminders implements ReminderScheduler {
     cleared = true;
     synced.clear();
   }
+
+  /// Notifications shown straight away: "title: body".
+  final List<String> shown = [];
+
+  @override
+  Future<void> showNow({required int id, required String title, required String body}) async =>
+      shown.add('$title: $body');
+
+  /// Supplier pay-by reminders set: "day: title".
+  List<String> dues = [];
+
+  @override
+  Future<void> syncDues(List<DueReminder> list) async =>
+      dues = [for (final d in list) '${d.day.year}-${d.day.month}-${d.day.day}: ${d.title}'];
 }

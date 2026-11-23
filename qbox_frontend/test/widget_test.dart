@@ -631,10 +631,11 @@ void backendTests() {
     await tester.tap(find.text('Business / Shop'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('tool-Stock')));
+    await tester.ensureVisible(find.byKey(const Key('tool-QBOX AI')));
+    await tester.tap(find.byKey(const Key('tool-QBOX AI')));
     await tester.pump(const Duration(milliseconds: 200)); // tile grow effect
     await tester.pump();
-    expect(find.text('Stock is coming soon'), findsOneWidget);
+    expect(find.text('QBOX AI is coming soon'), findsOneWidget);
   });
 
   testWidgets('Udhaar tiles open the shop book and My Udhaar', (tester) async {

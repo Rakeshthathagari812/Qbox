@@ -12,6 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEV_JWT_SECRET = "qbox-dev-only-secret-change-me-before-going-live-2026"
 DEV_AI_KEY = "qbox-ai-dev-only-key-change-me"
+DEV_PAYMENT_KEY = "qbox-dev-only-payment-key-change-me-2026"
 
 
 class Settings(BaseSettings):
@@ -20,8 +21,9 @@ class Settings(BaseSettings):
     # "dev" on this PC, "production" on the real server.
     app_env: str = "dev"
 
-    # PostgreSQL connection
-    database_url: str = "postgresql+psycopg://qbox:qbox_dev_2026@localhost:5432/qbox"
+    # PostgreSQL connection. pg8000 is pure Python (no DLLs), so Windows Smart App
+    # Control cannot block it.
+    database_url: str = "postgresql+pg8000://qbox:qbox_dev_2026@localhost:5432/qbox"
 
     # Login tokens. Development key only: set QBOX_JWT_SECRET (32+ characters) when going live.
     jwt_secret: str = DEV_JWT_SECRET
@@ -53,11 +55,32 @@ class Settings(BaseSettings):
     def ai_on(self) -> bool:
         return bool(self.ai_url and self.ai_key)
 
+    # Payments (Razorpay). Each shop connects its OWN Razorpay account, so money
+    # goes straight to that shop's bank and never through QBOX.
+    # For testing on this PC only: shops that have not connected their own
+    # account use this one (put the test keys in .env). Refused in production:
+    # one account collecting money for many shops is not allowed.
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    # Encrypts each shop's Razorpay secret key in the database. Change it when going live.
+    payment_secret_key: str = DEV_PAYMENT_KEY
+    # How long a counter QR stays valid.
+    payment_qr_minutes: int = 20
+
+    @property
+    def razorpay_test_account_on(self) -> bool:
+        return bool(self.razorpay_key_id and self.razorpay_key_secret) and not self.is_production
+
     # Wrong-PIN lock: every 5th wrong PIN in a row locks the account.
     # The first lock is short; later ones are long, so guessing a 4-digit PIN is not practical.
     login_max_failed_attempts: int = 5
     login_lock_minutes: int = 15
     login_long_lock_minutes: int = 24 * 60
+
+    # Login, OTP and PIN-reset requests one device (IP address) may make per 10 minutes,
+    # across all mobile numbers. Stops trying one easy PIN on thousands of numbers.
+    # 0 = off. Behind a proxy, start uvicorn with --proxy-headers so the real address is seen.
+    auth_requests_per_ip_10min: int = 30
 
     @property
     def is_production(self) -> bool:
@@ -75,6 +98,12 @@ def check_settings(settings: Settings) -> Settings:
         if settings.ai_url and (settings.ai_key == DEV_AI_KEY or len(settings.ai_key) < 32):
             raise ValueError("Set a private QBOX_AI_KEY (32+ characters) in production, "
                              "the same in qbox_ai/.env")
+        if settings.payment_secret_key == DEV_PAYMENT_KEY or len(settings.payment_secret_key) < 32:
+            raise ValueError("Set a private QBOX_PAYMENT_SECRET_KEY (32+ characters) in production. "
+                             "Keep it safe: without it, saved Razorpay keys cannot be read")
+        if settings.razorpay_key_id or settings.razorpay_key_secret:
+            raise ValueError("Remove QBOX_RAZORPAY_KEY_ID/SECRET in production: "
+                             "each shop connects its own Razorpay account")
     return settings
 
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'udhaar_models.dart';
@@ -47,7 +48,15 @@ abstract class UdhaarStore {
   Future<void> clear();
 }
 
-class PrefsUdhaarStore implements UdhaarStore {
+/// The phone copy, encrypted with a key kept in the phone's secure hardware
+/// (Android Keystore), like the login token: customer names, numbers and
+/// balances cannot be read by other apps, from backups or from the phone's files.
+class SecureUdhaarStore implements UdhaarStore {
+  SecureUdhaarStore({FlutterSecureStorage? storage}) : _storage = storage ?? const FlutterSecureStorage();
+
+  final FlutterSecureStorage _storage;
+  bool _moved = false;
+
   static const _prefix = 'qbox_udhaar_';
   static const _bookKey = '${_prefix}book';
   static const _pendingKey = '${_prefix}pending';
@@ -92,16 +101,21 @@ class PrefsUdhaarStore implements UdhaarStore {
 
   @override
   Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    for (final key in prefs.getKeys().where((k) => k.startsWith(_prefix)).toList()) {
-      await prefs.remove(key);
+    await _moveOldCopy();
+    try {
+      final all = await _storage.readAll();
+      for (final key in all.keys.where((k) => k.startsWith(_prefix))) {
+        await _storage.delete(key: key);
+      }
+    } catch (_) {
+      // Storage unreadable: nothing that can be read is left.
     }
   }
 
   Future<Object?> _read(String key) async {
+    await _moveOldCopy();
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final text = prefs.getString(key);
+      final text = await _storage.read(key: key);
       return text == null ? null : jsonDecode(text);
     } catch (_) {
       return null; // damaged copy: the next sync replaces it
@@ -109,8 +123,27 @@ class PrefsUdhaarStore implements UdhaarStore {
   }
 
   Future<void> _write(String key, Object value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, jsonEncode(value));
+    await _moveOldCopy();
+    await _storage.write(key: key, value: jsonEncode(value));
+  }
+
+  /// Earlier versions kept the copy unencrypted. Moved over once (unsent
+  /// entries included, so nothing is lost), then the old copy is deleted.
+  Future<void> _moveOldCopy() async {
+    if (_moved) return;
+    _moved = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys().where((k) => k.startsWith(_prefix)).toList()) {
+        final text = prefs.getString(key);
+        if (text != null && await _storage.read(key: key) == null) {
+          await _storage.write(key: key, value: text);
+        }
+        await prefs.remove(key);
+      }
+    } catch (_) {
+      _moved = false; // try again next time
+    }
   }
 }
 

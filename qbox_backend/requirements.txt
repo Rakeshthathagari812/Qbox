@@ -6,7 +6,7 @@ uvicorn[standard]>=0.32
 pydantic-settings>=2.6
 
 # Database: PostgreSQL driver, ORM, and table migrations
-psycopg[binary]>=3.2
+pg8000>=1.31  # pure Python: nothing for Windows Smart App Control to block
 SQLAlchemy>=2.0.36
 alembic>=1.14
 
@@ -14,7 +14,10 @@ alembic>=1.14
 bcrypt>=4.2
 PyJWT>=2.10
 
-# Calls to the QBOX AI server (speech + translation); also used by tests
+# Encrypts each shop's Razorpay secret key in the database
+cryptography>=44
+
+# Calls to the QBOX AI server (speech + translation) and Razorpay; also used by tests
 httpx>=0.28
 
 # Tests

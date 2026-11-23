@@ -4,6 +4,7 @@ import 'choose_role_screen.dart';
 import 'onboarding_draft.dart';
 import 'services/app_services.dart';
 import 'services/auth_api.dart';
+import 'splash_screen.dart';
 import 'welcome_screen.dart';
 
 enum _Startup { checking, loggedIn, loggedOut, offline }
@@ -91,9 +92,10 @@ class _StartupGateState extends State<StartupGate> {
     return switch (_state) {
       _Startup.loggedIn => const ChooseRoleScreen(),
       _Startup.loggedOut => const WelcomeScreen(),
+      // Usually hidden under the opening animation; no text, so nothing flashes.
       _Startup.checking => const Scaffold(
-          backgroundColor: Color(0xFFF4F0FD),
-          body: Center(child: _Logo()),
+          backgroundColor: Color(0xFFEFF8FD),
+          body: SizedBox.shrink(),
         ),
       _Startup.offline => Scaffold(
           backgroundColor: const Color(0xFFF4F0FD),
@@ -149,16 +151,5 @@ class _Logo extends StatelessWidget {
   const _Logo();
 
   @override
-  Widget build(BuildContext context) {
-    return const Text(
-      'QBOX',
-      style: TextStyle(
-        fontFamily: 'Poppins',
-        fontSize: 40,
-        letterSpacing: 1.4,
-        fontWeight: FontWeight.w800,
-        color: _StartupGateState._ink,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const QboxSymbol(size: 110);
 }

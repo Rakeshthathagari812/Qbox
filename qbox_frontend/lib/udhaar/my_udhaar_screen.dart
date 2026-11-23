@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../calendar/calendar_models.dart' show longDate;
+import '../payments/pay_udhaar.dart';
 import '../services/api_client.dart';
 import '../services/app_services.dart';
 import '../services/device_actions.dart';
@@ -269,6 +270,22 @@ class _MyBookScreenState extends State<MyBookScreen> {
     await _change(_app.udhaar.notMe, 'Report sent. ${_book.shopName} will check it.');
   }
 
+  /// Pays this shop online (Razorpay's payment screen); the book updates
+  /// once the backend has checked the payment.
+  Future<void> _pay() async {
+    final message = await payUdhaar(
+      context,
+      _app,
+      _book,
+      onWorking: (working) {
+        if (mounted) setState(() => _busy = working);
+      },
+    );
+    if (!mounted || message == null) return;
+    udNotify(context, message);
+    await _load();
+  }
+
   Future<void> _cancelReport() =>
       _change(_app.udhaar.cancelNotMe, 'Report taken back.');
 
@@ -334,6 +351,24 @@ class _MyBookScreenState extends State<MyBookScreen> {
                         ],
                       ),
                     ),
+                    if (_book.balancePaise > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: SizedBox(
+                          height: 54,
+                          child: FilledButton.icon(
+                            key: const Key('mybook-pay'),
+                            onPressed: _busy ? null : _pay,
+                            icon: const Icon(Icons.payments_rounded),
+                            label: Text('Pay ${rupees(_book.balancePaise)}'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: udPaid,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              textStyle: udText(16, weight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ),
                     if (_book.dispute == Dispute.reported)
                       UdBanner(
                         key: const Key('mybook-reported'),

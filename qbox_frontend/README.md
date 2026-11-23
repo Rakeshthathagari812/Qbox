@@ -54,7 +54,28 @@ lib/
     voice_udhaar.dart       "Ramesh 250 udhaar" / "Ramesh paid 100" -> entry
     udhaar_screen.dart      the book; customer_screen.dart = one customer
     add_customer_screen.dart  add with SMS code; entry_form_screen.dart = add entry
-    my_udhaar_screen.dart   customer side: "My Udhaar"
+    my_udhaar_screen.dart   customer side: "My Udhaar" (with "Pay" when money is owed)
+  stock/                  shop inventory (backend + phone copy; moves saved offline sync later)
+    stock_models.dart       items, moves, units (quantities in thousandths: 1.5 kg = 1500)
+    stock_catalog.dart      ~80 common shop items with names in all 5 languages
+    voice_stock.dart        "rice 10 kg came" / "బియ్యం 10 కిలోలు వచ్చాయి" -> item, qty, in/out
+    stock_repository.dart   server + phone copy + offline queue; low-stock count for the home badge
+    stock_screen.dart       the list; item_screen.dart = one item and its history
+    item_form_screen.dart   add / change an item; quick_start_screen.dart = tick common items
+    stock_widgets.dart      the in / sold / correct sheet, low-stock notification
+  suppliers/              who the shop buys from (backend + phone copy; entries saved offline)
+    supplier_models.dart    suppliers, purchases/payments, orders, the WhatsApp order message
+    supplier_repository.dart  server + phone copy + offline queue
+    suppliers_screen.dart   the list (what you owe, pay-by dates); supplier_screen.dart = one supplier
+    supplier_entry_screen.dart  purchase (items go into stock) / payment / goods received
+    order_screen.dart       order from what is running low, sent on WhatsApp
+  payments/               taking payments (shop) and paying udhaar (customer)
+    payments_screen.dart    today's total and list; says new payments out loud
+    collect_screen.dart     amount (keypad or voice) -> QR -> "₹250 received"
+    payment_settings_screen.dart  own UPI ID, connect Razorpay
+    pay_udhaar.dart         customer pays on Razorpay's screen; backend checks it
+    checkout.dart           Razorpay's payment screen (razorpay_flutter)
+    payment_models.dart     payments, UPI QR link, "received" words in 5 languages
   translator/             voice translator and the shared voice languages
     languages.dart          English, Telugu, Hindi, Kannada, Tamil (speech/voice/translate codes)
     translation_service.dart  IndicTrans2 online (QBOX server), else on-phone ML Kit
@@ -84,9 +105,13 @@ android/                  Android build settings
 - Plain `http://` is allowed only in debug builds; release builds need HTTPS.
 - Contacts: QBOX uses the phone's own contact picker, so it never asks for permission
   to read the address book; it only gets the one contact the shopkeeper taps.
-- Log out wipes the calculator, calendar and udhaar copies, including unsent entries.
+- Log out wipes the calculator, calendar, udhaar and stock copies, including unsent entries.
+- The stock copy on the phone is encrypted (Android Keystore), like the udhaar book.
 - Translation: online, the text goes to the QBOX server (IndicTrans2 runs there);
   offline it stays on the phone (Google ML Kit). Speech: Google's service, or with
   IndicConformer the recording goes to the QBOX server and is deleted from the phone
   straight after. No outside company is involved, and nothing said is stored.
 - Speaking aloud is always the phone's own Google voice (text-to-speech).
+- Payments: the Razorpay secret key is typed once in Payment settings and kept only on
+  the server (encrypted); the phone never stores it. Card and bank details are typed into
+  Razorpay's own screen, never into QBOX. A payment counts only after the backend checks it.

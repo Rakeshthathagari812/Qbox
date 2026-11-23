@@ -103,8 +103,9 @@ def _run(work):
         raise Problem(503, "NOT_READY", "This model is not installed") from None
     except Problem:
         raise
-    except Exception:
-        log.exception("Model call failed")  # the error only, never the words
+    except Exception as error:
+        # Only the kind of error: its message or details could hold the words said.
+        log.error("Model call failed: %s", type(error).__name__)
         raise Problem(500, "FAILED", "The model could not finish") from None
 
 

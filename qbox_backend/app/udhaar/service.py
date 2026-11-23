@@ -293,6 +293,24 @@ def _my_book_out(db: Session, customer: UdhaarCustomer) -> MyBookOut:
     return _book_out(customer, shop, _stats(db, [customer.id]).get(customer.id, _Stats()))
 
 
+# ---------- for other features (payments) ----------
+
+
+def shop_customer(db: Session, user: User, customer_id: int) -> UdhaarCustomer:
+    """A customer in this shop's own book (404 for anything else)."""
+    return _own_customer(db, user, customer_id)
+
+
+def customer_book(db: Session, user: User, book_id: int) -> UdhaarCustomer:
+    """A book this customer can see (404 for anything else)."""
+    return _my_customer(db, user, book_id)
+
+
+def balance(db: Session, customer_id: int) -> int:
+    """What the customer owes now (paise; negative = advance)."""
+    return _stats(db, [customer_id]).get(customer_id, _Stats()).balance
+
+
 # ---------- helpers ----------
 
 

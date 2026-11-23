@@ -17,6 +17,23 @@ abstract class ReminderScheduler {
 
   /// Removes every QBOX reminder (log out).
   Future<void> clearAll();
+
+  /// Shows a notification straight away (e.g. "Rice is running low").
+  /// [id] replaces an earlier notification with the same id.
+  Future<void> showNow({required int id, required String title, required String body});
+
+  /// Replaces all supplier pay-by reminders with [dues] (each rings at 9 AM on its day).
+  Future<void> syncDues(List<DueReminder> dues);
+}
+
+/// "Pay Ravi Traders ₹7,000 today", ringing at 9 AM on [day].
+class DueReminder {
+  const DueReminder({required this.id, required this.day, required this.title, required this.body});
+
+  final int id;
+  final DateTime day;
+  final String title;
+  final String body;
 }
 
 /// When a reminder should ring for [event], at or after [now]; null if never.
@@ -132,6 +149,59 @@ class LocalReminderScheduler implements ReminderScheduler {
     try {
       await _plugin.cancelAll();
     } catch (_) {}
+  }
+
+  static const _stockChannel = AndroidNotificationDetails(
+    'qbox_stock',
+    'Low stock',
+    channelDescription: 'When an item in your QBOX stock is running low',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+
+  @override
+  Future<void> showNow({required int id, required String title, required String body}) async {
+    if (!await _init()) return;
+    try {
+      // Stock notifications use ids from 2^30 up, apart from calendar reminders.
+      await _plugin.show(
+        id: (id & 0x3fffffff) | 0x40000000,
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(android: _stockChannel),
+      );
+    } catch (_) {
+      // A bonus: never let it break the screen.
+    }
+  }
+
+  static const _duesTag = 'supplier-dues';
+
+  @override
+  Future<void> syncDues(List<DueReminder> dues) async {
+    if (!await _init()) return;
+    try {
+      for (final pending in await _plugin.pendingNotificationRequests()) {
+        if (pending.payload == _duesTag) await _plugin.cancel(id: pending.id);
+      }
+      final now = DateTime.now();
+      for (final due in dues) {
+        final at = DateTime(due.day.year, due.day.month, due.day.day, 9);
+        if (!at.isAfter(now)) continue;
+        await _plugin.zonedSchedule(
+          // Supplier reminders use ids from 3 x 2^29 up, apart from the others.
+          id: (due.id & 0x1fffffff) | 0x60000000,
+          scheduledDate: tz.TZDateTime.from(at, tz.local),
+          notificationDetails: const NotificationDetails(android: _channel),
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          title: due.title,
+          body: due.body,
+          payload: _duesTag,
+        );
+      }
+    } catch (_) {
+      // Reminders are a bonus: never let them break the screen.
+    }
   }
 
   static int _notificationId(QboxRole role, int eventId) =>
