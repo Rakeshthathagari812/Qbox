@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qbox_app/calculator/calculator_store.dart';
 import 'package:qbox_app/main.dart';
 import 'package:qbox_app/services/session_store.dart';
+import 'package:qbox_app/widgets/tool_tap.dart';
 
 import 'fake_auth_api.dart';
 
@@ -260,7 +261,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Hello, Ramu'), findsOneWidget);
     expect(find.text('QBOX ID: QBC10001'), findsOneWidget);
-    expect(find.text('My QR'), findsOneWidget);
+    expect(find.text('My Udhaar'), findsOneWidget);
+    expect(find.text('My QR'), findsNothing); // hidden until it is built
     expect(find.text('Ask QBOX'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('switch-role')));
@@ -389,6 +391,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sri Balaji Kirana'), findsOneWidget);
     expect(find.text('Payments'), findsOneWidget);
+    expect(find.byKey(const Key('tool-QBOX AI')), findsNothing);
     expect(find.text('Ask QBOX AI'), findsOneWidget);
     expect(find.textContaining('Good '), findsOneWidget);
 
@@ -623,19 +626,16 @@ void backendTests() {
     }
   });
 
-  testWidgets('tiles not built yet say coming soon', (tester) async {
-    usePhone(tester);
-    await tester.pumpWidget(QboxApp(services: fakeServices()));
-    await tester.pumpAndSettle();
-    await _logInDemo(tester);
-    await tester.tap(find.text('Business / Shop'));
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.byKey(const Key('tool-QBOX AI')));
-    await tester.tap(find.byKey(const Key('tool-QBOX AI')));
+  testWidgets('a tile not built yet says coming soon', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: ToolTap(label: 'New Orders', child: SizedBox(width: 100, height: 100))),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('tool-New Orders')));
     await tester.pump(const Duration(milliseconds: 200)); // tile grow effect
     await tester.pump();
-    expect(find.text('QBOX AI is coming soon'), findsOneWidget);
+    expect(find.text('New Orders is coming soon'), findsOneWidget);
   });
 
   testWidgets('Udhaar tiles open the shop book and My Udhaar', (tester) async {

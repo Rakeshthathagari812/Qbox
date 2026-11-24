@@ -20,7 +20,7 @@ class FakePaymentsApi implements PaymentsApi {
     payments[id] = _copy(p, status: PaymentStatus.paid, payerVpa: vpa, paidAt: DateTime.now());
   }
 
-  Payment _copy(Payment p, {PaymentStatus? status, String? payerVpa, DateTime? paidAt}) => Payment(
+  Payment _copy(Payment p, {PaymentStatus? status, String? payerVpa, DateTime? paidAt, DateTime? claimedAt}) => Payment(
     id: p.id,
     amountPaise: p.amountPaise,
     source: p.source,
@@ -34,6 +34,7 @@ class FakePaymentsApi implements PaymentsApi {
     testMode: p.testMode,
     expiresAt: p.expiresAt,
     paidAt: paidAt ?? p.paidAt,
+    claimedAt: claimedAt ?? p.claimedAt,
     createdAt: p.createdAt,
   );
 
@@ -135,7 +136,11 @@ class FakePaymentsApi implements PaymentsApi {
   Future<PaymentsDay> today() async {
     _check('today');
     final paid = payments.values.where((p) => p.isPaid).toList().reversed.toList();
-    return PaymentsDay(totalPaise: paid.fold(0, (s, p) => s + p.amountPaise), payments: paid);
+    return PaymentsDay(
+      totalPaise: paid.fold(0, (s, p) => s + p.amountPaise),
+      payments: paid,
+      toConfirm: payments.values.where((p) => p.status == PaymentStatus.waiting && p.claimedAt != null).toList(),
+    );
   }
 
   @override
@@ -143,6 +148,95 @@ class FakePaymentsApi implements PaymentsApi {
     _check('udhaar $bookId $amountPaise');
     final p = _add(amountPaise, PaymentSource.udhaar, PaymentStatus.waiting, customerId: bookId);
     return UdhaarPayStart(payment: p, keyId: 'rzp_test_KEY', orderId: 'order_$bookId', shopName: 'Lakshmi Stores', contact: '9988776655');
+  }
+
+  List<PayShop> shops = [];
+
+  /// Shops found by number.
+  final Map<String, PayShop> byNumber = {};
+  final List<String> clientRefs = [];
+
+  @override
+  Future<PayShops> payShops() async {
+    _check('payShops');
+    return PayShops(
+      shops: shops,
+      unfinished: [
+        for (final p in payments.values)
+          if (p.source == PaymentSource.direct && p.status == PaymentStatus.waiting && p.claimedAt == null && p.payUrl == 'upi')
+            UnfinishedUpi(payment: p, shopName: 'Lakshmi Stores'),
+      ],
+    );
+  }
+
+  @override
+  Future<PayShop> findShop(String mobile) async {
+    _check('find $mobile');
+    return byNumber[mobile] ??
+        (throw const ApiException('SHOP_NOT_FOUND', 'No QBOX shop uses this number', status: 404));
+  }
+
+  /// Shops found by their QBOX QR's code.
+  final Map<String, PayShop> byCode = {};
+  ShopQrCode qr = const ShopQrCode(shopName: 'Lakshmi Stores', data: 'qbox://pay?qbox=abcdefghijklmnop');
+
+  @override
+  Future<PayShop> scanShop(String code) async {
+    _check('scan $code');
+    return byCode[code] ??
+        (throw const ApiException('SHOP_NOT_FOUND', 'This QBOX QR is not in use. Ask the shop for its new one', status: 404));
+  }
+
+  @override
+  Future<ShopQrCode> shopQr() async {
+    _check('shopQr');
+    return qr;
+  }
+
+  @override
+  Future<ShopPayStart> startShopPayment(PayShop shop, int amountPaise, String clientRef, {required bool upi, String? note}) async {
+    clientRefs.add(clientRef);
+    _check('shop ${shop.ref} $amountPaise ${upi ? 'UPI' : 'ONLINE'}');
+    final id = _next++;
+    final p = payments[id] = Payment(
+      id: id,
+      amountPaise: amountPaise,
+      source: PaymentSource.direct,
+      customerName: 'Ravi',
+      note: note,
+      payUrl: upi ? 'upi' : null,
+    );
+    return ShopPayStart(
+      payment: p,
+      shopName: shop.shopName,
+      contact: '9988776655',
+      keyId: upi ? null : 'rzp_test_KEY',
+      orderId: upi ? null : 'order_$id',
+      upiId: upi ? 'lakshmi@okaxis' : null,
+      upiName: upi ? 'Lakshmi' : null,
+    );
+  }
+
+  @override
+  Future<Payment> claimUpi(int paymentId) async {
+    _check('claim $paymentId');
+    return payments[paymentId] = _copy(payments[paymentId]!, claimedAt: DateTime.now());
+  }
+
+  @override
+  Future<Payment> dropUpi(int paymentId) async {
+    _check('drop $paymentId');
+    return payments[paymentId] = _copy(payments[paymentId]!, status: PaymentStatus.cancelled);
+  }
+
+  @override
+  Future<Payment> answerUpi(int paymentId, {required bool received}) async {
+    _check('answer $paymentId $received');
+    return payments[paymentId] = _copy(
+      payments[paymentId]!,
+      status: received ? PaymentStatus.paid : PaymentStatus.cancelled,
+      paidAt: received ? DateTime.now() : null,
+    );
   }
 
   @override

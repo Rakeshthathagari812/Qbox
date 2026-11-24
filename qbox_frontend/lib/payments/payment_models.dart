@@ -52,7 +52,8 @@ class PaymentSettings {
 enum PaymentSource {
   counter('COUNTER', 'UPI QR'),
   udhaar('UDHAAR', 'Udhaar paid in QBOX'),
-  manual('MANUAL', 'UPI (confirmed by you)');
+  manual('MANUAL', 'UPI (confirmed by you)'),
+  direct('DIRECT', 'Paid from QBOX');
 
   const PaymentSource(this.code, this.label);
 
@@ -93,6 +94,7 @@ class Payment {
     this.testMode = false,
     this.expiresAt,
     this.paidAt,
+    this.claimedAt,
     this.createdAt,
   });
 
@@ -114,6 +116,9 @@ class Payment {
   final bool testMode;
   final DateTime? expiresAt;
   final DateTime? paidAt;
+
+  /// UPI (Pay to Shop): when the customer said they paid; the shop confirms.
+  final DateTime? claimedAt;
   final DateTime? createdAt;
 
   bool get isPaid => status == PaymentStatus.paid;
@@ -141,6 +146,7 @@ class Payment {
       testMode: json['testMode'] == true,
       expiresAt: _time(json['expiresAt']),
       paidAt: _time(json['paidAt']),
+      claimedAt: _time(json['claimedAt']),
       createdAt: _time(json['createdAt']),
     );
   }
@@ -148,10 +154,13 @@ class Payment {
 
 /// Everything paid to the shop on one day.
 class PaymentsDay {
-  const PaymentsDay({required this.totalPaise, required this.payments});
+  const PaymentsDay({required this.totalPaise, required this.payments, this.toConfirm = const []});
 
   final int totalPaise;
   final List<Payment> payments;
+
+  /// UPI payments customers say they made; the shop checks its bank.
+  final List<Payment> toConfirm;
 
   static PaymentsDay? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
@@ -160,11 +169,12 @@ class PaymentsDay {
     return PaymentsDay(
       totalPaise: json['totalPaise'] as int? ?? 0,
       payments: list.map(Payment.fromJson).whereType<Payment>().toList(),
+      toConfirm: [for (final p in json['toConfirm'] as List? ?? const []) ?Payment.fromJson(p)],
     );
   }
 }
 
-/// What the app needs to open Razorpay's payment screen for an udhaar payment.
+/// What the app needs to open Razorpay's payment screen.
 class UdhaarPayStart {
   const UdhaarPayStart({
     required this.payment,
@@ -172,6 +182,7 @@ class UdhaarPayStart {
     required this.orderId,
     required this.shopName,
     required this.contact,
+    this.description = 'Udhaar payment',
   });
 
   final Payment payment;
@@ -179,6 +190,7 @@ class UdhaarPayStart {
   final String orderId;
   final String shopName;
   final String contact;
+  final String description;
 
   static UdhaarPayStart? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
@@ -192,6 +204,144 @@ class UdhaarPayStart {
       orderId: order,
       shopName: json['shopName'] as String? ?? 'Shop',
       contact: json['contact'] as String? ?? '',
+    );
+  }
+}
+
+/// A shop the customer can pay ("Pay to Shop").
+class PayShop {
+  const PayShop({
+    required this.ref,
+    required this.shopName,
+    this.shopCategory,
+    this.shopPhoto,
+    this.bookId,
+    this.duePaise = 0,
+    this.online = false,
+    this.testMode = false,
+    this.upi = false,
+  });
+
+  /// Sent back when paying.
+  final String ref;
+  final String shopName;
+  final String? shopCategory;
+
+  /// The ref of the shop's photo.
+  final String? shopPhoto;
+
+  /// Their udhaar book there, and what is owed (paid separately).
+  final int? bookId;
+  final int duePaise;
+
+  /// Razorpay's payment screen, confirmed by itself ([testMode]: pretend money).
+  final bool online;
+  final bool testMode;
+
+  /// The shop's own UPI ID, confirmed by the shop.
+  final bool upi;
+
+  static PayShop? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final ref = json['ref'];
+    final name = json['shopName'];
+    if (ref is! String || name is! String) return null;
+    return PayShop(
+      ref: ref,
+      shopName: name,
+      shopCategory: json['shopCategory'] as String?,
+      shopPhoto: json['shopPhoto'] as String?,
+      bookId: json['bookId'] as int?,
+      duePaise: json['duePaise'] as int? ?? 0,
+      online: json['online'] == true,
+      testMode: json['testMode'] == true,
+      upi: json['upi'] == true,
+    );
+  }
+}
+
+/// The shop's own QR.
+class ShopQrCode {
+  const ShopQrCode({required this.shopName, required this.data, this.worksInUpiApps = false});
+
+  final String shopName;
+  final String data;
+
+  /// The shop has a UPI ID, so PhonePe / GPay can read it too.
+  final bool worksInUpiApps;
+
+  static ShopQrCode? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final name = json['shopName'];
+    final data = json['data'];
+    if (name is! String || data is! String) return null;
+    return ShopQrCode(shopName: name, data: data, worksInUpiApps: json['worksInUpiApps'] == true);
+  }
+}
+
+/// A UPI payment that was started; "did you pay?" is not answered yet.
+class UnfinishedUpi {
+  const UnfinishedUpi({required this.payment, required this.shopName});
+
+  final Payment payment;
+  final String shopName;
+
+  static UnfinishedUpi? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final payment = Payment.fromJson(json['payment']);
+    final name = json['shopName'];
+    return payment == null || name is! String ? null : UnfinishedUpi(payment: payment, shopName: name);
+  }
+}
+
+class PayShops {
+  const PayShops({this.shops = const [], this.unfinished = const []});
+
+  final List<PayShop> shops;
+  final List<UnfinishedUpi> unfinished;
+
+  static PayShops? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    return PayShops(
+      shops: [for (final s in json['shops'] as List? ?? const []) ?PayShop.fromJson(s)],
+      unfinished: [for (final u in json['unfinished'] as List? ?? const []) ?UnfinishedUpi.fromJson(u)],
+    );
+  }
+}
+
+/// A payment to a shop that was just started: online (key and order) or by UPI.
+class ShopPayStart {
+  const ShopPayStart({
+    required this.payment,
+    required this.shopName,
+    required this.contact,
+    this.keyId,
+    this.orderId,
+    this.upiId,
+    this.upiName,
+  });
+
+  final Payment payment;
+  final String shopName;
+  final String contact;
+  final String? keyId;
+  final String? orderId;
+  final String? upiId;
+  final String? upiName;
+
+  static ShopPayStart? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final payment = Payment.fromJson(json['payment']);
+    final name = json['shopName'];
+    if (payment == null || name is! String) return null;
+    return ShopPayStart(
+      payment: payment,
+      shopName: name,
+      contact: json['contact'] as String? ?? '',
+      keyId: json['keyId'] as String?,
+      orderId: json['orderId'] as String?,
+      upiId: json['upiId'] as String?,
+      upiName: json['upiName'] as String?,
     );
   }
 }

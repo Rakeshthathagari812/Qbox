@@ -124,10 +124,10 @@ def test_register_creates_all_profiles(client):
     assert user["id"] == 1
     assert user["mobile"] == MOBILE
     assert user["roles"] == ["BUSINESS", "CUSTOMER", "SUPPLIER"]
-    assert user["shop"] == {**SHOP, "qboxId": "QBM10001", "businessTypeDetail": None}
+    assert user["shop"] == {**SHOP, "qboxId": "QBM10001", "businessTypeDetail": None, "photo": None}
     assert user["customer"] == {
         "qboxId": "QBC10001", "fullName": "Ramu", "mobileNumber": MOBILE,
-        "email": None, "address": None, "aadhaarLinkRequested": True,
+        "email": None, "address": None, "aadhaarLinkRequested": True, "photo": None,
     }
     assert user["supplier"]["qboxId"] == "QBS10001"
     assert user["supplier"]["businessTypeDetail"] is None

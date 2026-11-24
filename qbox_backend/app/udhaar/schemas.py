@@ -136,6 +136,9 @@ class MyBookOut(CamelModel):
     book_id: int
     shop_name: str
     shop_phone: str | None
+    shop_category: str | None
+    shop_address: str | None
+    shop_photo: str | None
     balance_paise: int
     last_entry_at: datetime | None
     dispute: Dispute

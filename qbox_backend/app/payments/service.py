@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.errors import ApiError
 from app.models import (
+    CustomerProfile,
     EntryKind,
     Gateway,
     Payment,
@@ -57,6 +58,9 @@ ORDER_MINUTES = 30
 SHOP_REQUESTS_PER_10_MIN = 60
 CUSTOMER_REQUESTS_PER_10_MIN = 10
 REFRESH_IN_LIST = 5
+# Until then Razorpay is asked before a waiting payment is given up, so money
+# paid while the app was closed is still found days later.
+GIVE_UP_AFTER = timedelta(days=7)
 
 # Razorpay accounts without QR Codes switched on: key id -> when we found out.
 # Counter payments then use a payment link; QR Codes is tried again after an hour.
@@ -69,13 +73,13 @@ _NO_QR_RETRY_SECONDS = 3600
 
 
 def get_settings_out(db: Session, user: User, gateways: Gateways) -> PaymentSettingsOut:
-    _require(user, Role.BUSINESS)
+    require(user, Role.BUSINESS)
     return _settings_out(db.get(ShopPaymentSettings, user.id), gateways)
 
 
 def set_upi(db: Session, user: User, body: UpiIn, gateways: Gateways) -> PaymentSettingsOut:
-    _require(user, Role.BUSINESS)
-    row = _settings_row(db, user)
+    require(user, Role.BUSINESS)
+    row = settings_row(db, user)
     row.upi_id = body.upi_id
     row.upi_name = body.upi_name if body.upi_id else None
     db.commit()
@@ -84,9 +88,9 @@ def set_upi(db: Session, user: User, body: UpiIn, gateways: Gateways) -> Payment
 
 def connect_razorpay(db: Session, user: User, body: RazorpayKeysIn, gateways: Gateways) -> PaymentSettingsOut:
     """Checks the keys with Razorpay first; the secret is then stored encrypted."""
-    _require(user, Role.BUSINESS)
+    require(user, Role.BUSINESS)
     gateways.make(body.key_id, body.key_secret).check_keys()
-    row = _settings_row(db, user)
+    row = settings_row(db, user)
     row.razorpay_key_id = body.key_id
     row.razorpay_secret = lock(body.key_secret)
     row.razorpay_connected_at = datetime.now(UTC)
@@ -95,7 +99,7 @@ def connect_razorpay(db: Session, user: User, body: RazorpayKeysIn, gateways: Ga
 
 
 def disconnect_razorpay(db: Session, user: User, gateways: Gateways) -> PaymentSettingsOut:
-    _require(user, Role.BUSINESS)
+    require(user, Role.BUSINESS)
     row = db.get(ShopPaymentSettings, user.id)
     if row is not None:
         row.razorpay_key_id = None
@@ -111,10 +115,10 @@ def disconnect_razorpay(db: Session, user: User, gateways: Gateways) -> PaymentS
 def collect(db: Session, user: User, body: CollectIn, gateways: Gateways) -> PaymentOut:
     """A one-time QR for exactly this amount. Sending the same request twice
     (same client_ref, e.g. a retry) gives the same QR."""
-    _require(user, Role.BUSINESS)
-    existing = _by_client_ref(db, user.id, body.client_ref)
+    require(user, Role.BUSINESS)
+    existing = by_client_ref(db, user.id, body.client_ref)
     if existing is not None:
-        return _out(db, existing)
+        return out(db, existing)
     if body.udhaar_customer_id is not None:
         udhaar.shop_customer(db, user, body.udhaar_customer_id)
     account = gateways.for_shop(db.get(ShopPaymentSettings, user.id))
@@ -122,11 +126,11 @@ def collect(db: Session, user: User, body: CollectIn, gateways: Gateways) -> Pay
         raise ApiError(409, "NO_ONLINE_PAYMENTS",
                        "Automatic payments are not set up. Connect Razorpay in Payment settings, "
                        "or use your own UPI ID")
-    _check_rate(db, Payment.shop_user_id == user.id, SHOP_REQUESTS_PER_10_MIN)
+    check_rate(db, Payment.shop_user_id == user.id, SHOP_REQUESTS_PER_10_MIN)
 
-    note = _clean(body.note)
+    note = clean(body.note)
     expires = datetime.now(UTC) + timedelta(minutes=get_settings().payment_qr_minutes)
-    description = f"{_shop_name(db, user.id)}: {note or 'payment'}"[:80]
+    description = f"{shop_name(db, user.id)}: {note or 'payment'}"[:80]
     made = _make_qr(account, body.amount_paise, description, expires, {"qbox": "counter"})
     payment = Payment(
         shop_user_id=user.id,
@@ -149,16 +153,16 @@ def collect(db: Session, user: User, body: CollectIn, gateways: Gateways) -> Pay
     except IntegrityError:  # the same request arrived twice at the same moment
         db.rollback()
         account.close(made.gateway, made.ref)
-        return _out(db, _by_client_ref(db, user.id, body.client_ref))
-    return _out(db, payment)
+        return out(db, by_client_ref(db, user.id, body.client_ref))
+    return out(db, payment)
 
 
 def record_manual(db: Session, user: User, body: CollectIn) -> PaymentOut:
     """Money paid to the shop's own UPI ID, confirmed by the shop by hand."""
-    _require(user, Role.BUSINESS)
-    existing = _by_client_ref(db, user.id, body.client_ref)
+    require(user, Role.BUSINESS)
+    existing = by_client_ref(db, user.id, body.client_ref)
     if existing is not None:
-        return _out(db, existing)
+        return out(db, existing)
     if body.udhaar_customer_id is not None:
         udhaar.shop_customer(db, user, body.udhaar_customer_id)
     now = datetime.now(UTC)
@@ -167,7 +171,7 @@ def record_manual(db: Session, user: User, body: CollectIn) -> PaymentOut:
         source=PaymentSource.MANUAL.value,
         status=PaymentStatus.PAID.value,
         amount_paise=body.amount_paise,
-        note=_clean(body.note),
+        note=clean(body.note),
         udhaar_customer_id=body.udhaar_customer_id,
         client_ref=body.client_ref,
         paid_at=now,
@@ -179,32 +183,32 @@ def record_manual(db: Session, user: User, body: CollectIn) -> PaymentOut:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _out(db, _by_client_ref(db, user.id, body.client_ref))
-    return _out(db, payment)
+        return out(db, by_client_ref(db, user.id, body.client_ref))
+    return out(db, payment)
 
 
 def cancel(db: Session, user: User, payment_id: int, gateways: Gateways) -> PaymentOut:
     """Stops a QR. If it was paid in the meantime, it is recorded as paid instead."""
     payment = _visible(db, user, payment_id)
     if payment.shop_user_id != user.id:
-        raise _not_found()
+        raise not_found()
     if payment.status != PaymentStatus.WAITING.value:
-        return _out(db, payment)
+        return out(db, payment)
     account = _account_for(db, payment, gateways)
     if account is not None and payment.gateway:
         paid = account.find_paid(Gateway(payment.gateway), payment.gateway_ref, payment.amount_paise)
         if paid is not None:
-            return _out(db, _mark_paid(db, payment.id, paid))
+            return out(db, _mark_paid(db, payment.id, paid))
         account.close(Gateway(payment.gateway), payment.gateway_ref)
     payment.status = PaymentStatus.CANCELLED.value
     db.commit()
-    return _out(db, payment)
+    return out(db, payment)
 
 
 def day_payments(db: Session, user: User, day: date | None, gateways: Gateways) -> PaymentsDayOut:
     """Everything paid to the shop on one day (India time; today if not given)."""
-    _require(user, Role.BUSINESS)
-    _refresh_waiting(db, user, gateways)
+    require(user, Role.BUSINESS)
+    _refresh_waiting(db, Payment.shop_user_id == user.id, gateways)
     day = day or datetime.now(INDIA).date()
     start = datetime.combine(day, time.min, INDIA)
     rows = db.scalars(
@@ -222,7 +226,7 @@ def day_payments(db: Session, user: User, day: date | None, gateways: Gateways) 
         day=day,
         total_paise=sum(p.amount_paise for p in rows),
         count=len(rows),
-        payments=[_out(db, p, names) for p in rows],
+        payments=[out(db, p, names) for p in rows],
     )
 
 
@@ -232,25 +236,25 @@ def day_payments(db: Session, user: User, day: date | None, gateways: Gateways) 
 def pay_udhaar(db: Session, user: User, book_id: int, body: UdhaarPayIn, gateways: Gateways) -> UdhaarPayOut:
     """Makes a Razorpay order for the customer to pay on Razorpay's own payment screen."""
     customer = udhaar.customer_book(db, user, book_id)
-    shop_name = _shop_name(db, customer.shop_user_id)
+    shop = shop_name(db, customer.shop_user_id)
     row = db.get(ShopPaymentSettings, customer.shop_user_id)
-    existing = _by_client_ref(db, customer.shop_user_id, body.client_ref)
+    existing = by_client_ref(db, customer.shop_user_id, body.client_ref)
     if existing is not None:
         if existing.payer_user_id != user.id or existing.gateway != Gateway.ORDER.value:
-            raise _not_found()
-        return UdhaarPayOut(payment=_out(db, existing), key_id=existing.gateway_key_id or "",
-                            order_id=existing.gateway_ref or "", shop_name=shop_name, contact=user.mobile)
+            raise not_found()
+        return UdhaarPayOut(payment=out(db, existing), key_id=existing.gateway_key_id or "",
+                            order_id=existing.gateway_ref or "", shop_name=shop, contact=user.mobile)
 
     due = udhaar.balance(db, customer.id)
     if due <= 0:
-        raise ApiError(409, "NOTHING_DUE", f"Nothing is due at {shop_name}")
+        raise ApiError(409, "NOTHING_DUE", f"Nothing is due at {shop}")
     if body.amount_paise > due:
-        raise ApiError(400, "MORE_THAN_DUE", f"You owe {_rupees(due)} at {shop_name}. Pay up to that amount")
+        raise ApiError(400, "MORE_THAN_DUE", f"You owe {_rupees(due)} at {shop}. Pay up to that amount")
     account = gateways.for_shop(row)
     if account is None:
         raise ApiError(409, "SHOP_NO_ONLINE",
-                       f"{shop_name} does not take online payments in QBOX yet. Please pay at the shop")
-    _check_rate(db, Payment.payer_user_id == user.id, CUSTOMER_REQUESTS_PER_10_MIN)
+                       f"{shop} does not take online payments in QBOX yet. Please pay at the shop")
+    check_rate(db, Payment.payer_user_id == user.id, CUSTOMER_REQUESTS_PER_10_MIN)
 
     order = account.create_order(body.amount_paise, f"qbox-{body.client_ref}",
                                  {"qbox": "udhaar", "book": str(customer.id)})
@@ -273,8 +277,8 @@ def pay_udhaar(db: Session, user: User, book_id: int, body: UdhaarPayIn, gateway
     except IntegrityError:
         db.rollback()
         raise ApiError(409, "TRY_AGAIN", "Please try again") from None
-    return UdhaarPayOut(payment=_out(db, payment), key_id=account.key_id, order_id=order.ref,
-                        shop_name=shop_name, contact=user.mobile)
+    return UdhaarPayOut(payment=out(db, payment), key_id=account.key_id, order_id=order.ref,
+                        shop_name=shop, contact=user.mobile)
 
 
 def verify(db: Session, user: User, payment_id: int, body: VerifyIn, gateways: Gateways) -> PaymentOut:
@@ -282,9 +286,9 @@ def verify(db: Session, user: User, payment_id: int, body: VerifyIn, gateways: G
     with Razorpay itself, before the udhaar book changes."""
     payment = db.get(Payment, payment_id)
     if payment is None or payment.payer_user_id != user.id:
-        raise _not_found()
+        raise not_found()
     if payment.status == PaymentStatus.PAID.value:
-        return _out(db, payment)
+        return out(db, payment)
     account = _account_for(db, payment, gateways)
     if account is None:
         raise ApiError(409, "SHOP_NO_ONLINE", "This shop's online payments are switched off. Please contact the shop")
@@ -296,15 +300,20 @@ def verify(db: Session, user: User, payment_id: int, body: VerifyIn, gateways: G
                        "This payment could not be checked. If money was taken, it will show here in a few minutes")
     paid = account.payment(body.razorpay_payment_id)
     if paid is None or paid.order_id != payment.gateway_ref:
-        return _out(db, _refresh(db, payment, gateways, force=True))
-    return _out(db, _mark_paid(db, payment.id, paid))
+        return out(db, _refresh(db, payment, gateways, force=True))
+    return out(db, _mark_paid(db, payment.id, paid))
 
 
 # ---------- checking one payment (shop or the customer who paid) ----------
 
 
 def get_payment(db: Session, user: User, payment_id: int, gateways: Gateways) -> PaymentOut:
-    return _out(db, _refresh(db, _visible(db, user, payment_id), gateways))
+    return out(db, _refresh(db, _visible(db, user, payment_id), gateways))
+
+
+def refresh_payer_waiting(db: Session, user: User, gateways: Gateways) -> None:
+    """The customer's own payments that are still waiting (for their history)."""
+    _refresh_waiting(db, Payment.payer_user_id == user.id, gateways)
 
 
 # ---------- helpers ----------
@@ -332,6 +341,8 @@ def _refresh(db: Session, payment: Payment, gateways: Gateways, force: bool = Fa
         return payment
     account = _account_for(db, payment, gateways)
     if account is None:  # the shop disconnected that Razorpay account: it cannot be checked
+        payment.checked_at = now  # so it does not keep others from being checked
+        db.commit()
         return payment
     gateway = Gateway(payment.gateway)
     paid = account.find_paid(gateway, payment.gateway_ref, payment.amount_paise)
@@ -345,20 +356,21 @@ def _refresh(db: Session, payment: Payment, gateways: Gateways, force: bool = Fa
     return payment
 
 
-def _refresh_waiting(db: Session, user: User, gateways: Gateways) -> None:
+def _refresh_waiting(db: Session, who, gateways: Gateways) -> None:
     """Checks a few waiting payments (e.g. a customer who paid udhaar while the
-    shop's Collect screen was closed). Very old ones are simply expired."""
+    shop's Collect screen was closed). Ones too old to
+    still be paid (GIVE_UP_AFTER) are simply expired."""
     now = datetime.now(UTC)
     db.execute(
         update(Payment)
-        .where(Payment.shop_user_id == user.id, Payment.status == PaymentStatus.WAITING.value,
-               Payment.expires_at < now - timedelta(days=1))
+        .where(who, Payment.status == PaymentStatus.WAITING.value,
+               Payment.expires_at < now - GIVE_UP_AFTER)
         .values(status=PaymentStatus.EXPIRED.value)
     )
     db.commit()
     waiting = db.scalars(
         select(Payment)
-        .where(Payment.shop_user_id == user.id, Payment.status == PaymentStatus.WAITING.value)
+        .where(who, Payment.status == PaymentStatus.WAITING.value, Payment.gateway.is_not(None))
         .order_by(Payment.checked_at.asc().nulls_first())
         .limit(REFRESH_IN_LIST)
     ).all()
@@ -432,7 +444,7 @@ def _visible(db: Session, user: User, payment_id: int) -> Payment:
     payment = db.get(Payment, payment_id)
     is_shop = payment is not None and payment.shop_user_id == user.id and _has(user, Role.BUSINESS)
     if payment is None or not (is_shop or payment.payer_user_id == user.id):
-        raise _not_found()
+        raise not_found()
     return payment
 
 
@@ -440,7 +452,7 @@ def _account_for(db: Session, payment: Payment, gateways: Gateways) -> Razorpay 
     return gateways.for_key(db.get(ShopPaymentSettings, payment.shop_user_id), payment.gateway_key_id)
 
 
-def _settings_row(db: Session, user: User) -> ShopPaymentSettings:
+def settings_row(db: Session, user: User) -> ShopPaymentSettings:
     row = db.get(ShopPaymentSettings, user.id)
     if row is None:
         row = ShopPaymentSettings(shop_user_id=user.id)
@@ -462,13 +474,13 @@ def _settings_out(row: ShopPaymentSettings | None, gateways: Gateways) -> Paymen
     )
 
 
-def _by_client_ref(db: Session, shop_user_id: int, client_ref: str) -> Payment | None:
+def by_client_ref(db: Session, shop_user_id: int, client_ref: str) -> Payment | None:
     return db.scalars(
         select(Payment).where(Payment.shop_user_id == shop_user_id, Payment.client_ref == client_ref)
     ).first()
 
 
-def _check_rate(db: Session, who, limit: int) -> None:
+def check_rate(db: Session, who, limit: int) -> None:
     """Stops one phone from making hundreds of Razorpay requests."""
     recent = db.scalar(
         select(func.count()).select_from(Payment).where(
@@ -487,7 +499,7 @@ def _names(db: Session, payments) -> dict[int, str]:
     return dict(db.execute(select(UdhaarCustomer.id, UdhaarCustomer.name).where(UdhaarCustomer.id.in_(ids))).all())
 
 
-def _out(db: Session, payment: Payment, names: dict[int, str] | None = None) -> PaymentOut:
+def out(db: Session, payment: Payment, names: dict[int, str] | None = None) -> PaymentOut:
     name = None
     if payment.udhaar_customer_id:
         if names is not None:
@@ -495,6 +507,9 @@ def _out(db: Session, payment: Payment, names: dict[int, str] | None = None) -> 
         else:
             customer = db.get(UdhaarCustomer, payment.udhaar_customer_id)
             name = customer.name if customer else None
+    elif payment.source == PaymentSource.DIRECT.value and payment.payer_user_id:
+        payer = db.get(CustomerProfile, payment.payer_user_id)
+        name = payer.full_name if payer else None
     return PaymentOut(
         id=payment.id,
         source=PaymentSource(payment.source),
@@ -510,16 +525,17 @@ def _out(db: Session, payment: Payment, names: dict[int, str] | None = None) -> 
         test_mode=bool(payment.gateway_key_id and payment.gateway_key_id.startswith("rzp_test_")),
         expires_at=payment.expires_at,
         paid_at=payment.paid_at,
+        claimed_at=payment.claimed_at,
         created_at=payment.created_at or datetime.now(UTC),
     )
 
 
-def _shop_name(db: Session, shop_user_id: int) -> str:
+def shop_name(db: Session, shop_user_id: int) -> str:
     shop = db.get(ShopProfile, shop_user_id)
     return shop.shop_name if shop else "QBOX shop"
 
 
-def _clean(note: str | None) -> str | None:
+def clean(note: str | None) -> str | None:
     note = " ".join((note or "").split())
     return note or None
 
@@ -532,10 +548,10 @@ def _has(user: User, role: Role) -> bool:
     return role.value in {r.role for r in user.roles}
 
 
-def _require(user: User, role: Role) -> None:
+def require(user: User, role: Role) -> None:
     if not _has(user, role):
         raise ApiError(403, "ROLE_NOT_HELD", "Your account does not have this role")
 
 
-def _not_found() -> ApiError:
+def not_found() -> ApiError:
     return ApiError(404, "PAYMENT_NOT_FOUND", "This payment is not available")

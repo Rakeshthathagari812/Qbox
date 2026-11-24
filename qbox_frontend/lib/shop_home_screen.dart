@@ -5,6 +5,7 @@ import 'widgets/qbox_brand.dart';
 import 'calculator/calculator_screen.dart';
 import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
+import 'profile/home_actions.dart';
 import 'payments/collect_screen.dart';
 import 'payments/payments_screen.dart';
 import 'services/app_services.dart';
@@ -66,60 +67,8 @@ class _TopBar extends StatelessWidget {
       children: [
         QboxWordmark(fontSize: 26, letterSpacing: 0),
         Spacer(),
-        _Bell(),
-        SizedBox(width: 10),
-        _Profile(),
+        HomeActions(role: QboxRole.business),
       ],
-    );
-  }
-}
-
-class _Bell extends StatelessWidget {
-  const _Bell();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 36,
-      height: 36,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Align(
-            alignment: Alignment.center,
-            child: Icon(Icons.notifications_none, color: _ink, size: 26),
-          ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color(0xFFE11D48),
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox(width: 8, height: 8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Profile extends StatelessWidget {
-  const _Profile();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFE4DDF3)),
-        color: Colors.white,
-      ),
-      child: const Icon(Icons.person_outline, color: _purple, size: 22),
     );
   }
 }
@@ -271,7 +220,6 @@ class _ToolGrid extends StatelessWidget {
     _Tool(Icons.calculate_outlined, 'Calculator', opens: openCalculator),
     _Tool(Icons.calendar_month_outlined, 'Calendar', opens: openShopCalendar),
     _Tool(Icons.translate, 'Translator', caption: '(Voice, 5 languages)', opens: openTranslator),
-    _Tool(Icons.auto_awesome, 'QBOX AI', caption: '(Voice assistant)'),
   ];
 
   @override

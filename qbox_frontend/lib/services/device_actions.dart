@@ -58,6 +58,13 @@ Uri whatsAppAppLink(String mobile, String text) => Uri(
 Uri whatsAppLink(String mobile, String text) =>
     Uri.https('wa.me', '/91$mobile', {'text': text});
 
+/// WhatsApp, where the person chooses who gets [text].
+Uri whatsAppShareAppLink(String text) =>
+    Uri(scheme: 'whatsapp', host: 'send', query: 'text=${Uri.encodeComponent(text)}');
+
+Uri whatsAppShareLink(String text) =>
+    Uri(scheme: 'https', host: 'wa.me', path: '/', query: 'text=${Uri.encodeComponent(text)}');
+
 Uri smsLink(String mobile, String text) =>
     Uri(scheme: 'sms', path: '+91$mobile', queryParameters: {'body': text});
 

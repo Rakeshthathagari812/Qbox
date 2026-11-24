@@ -1,6 +1,6 @@
 """Calendar API tests: events per role, ownership, checks, festivals."""
 
-from tests.test_auth import CUSTOMER, SHOP
+from tests.test_auth import CUSTOMER, SHOP, SUPPLIER
 
 
 def _account(client, mobile, roles=("BUSINESS",)):
@@ -14,6 +14,8 @@ def _account(client, mobile, roles=("BUSINESS",)):
         body["shop"] = {**SHOP, "contactNumber": mobile}
     if "CUSTOMER" in roles:
         body["customer"] = {**CUSTOMER, "mobileNumber": mobile}
+    if "SUPPLIER" in roles:
+        body["supplier"] = {**SUPPLIER, "contactNumber": mobile}
     response = client.post("/api/auth/register", json=body)
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}

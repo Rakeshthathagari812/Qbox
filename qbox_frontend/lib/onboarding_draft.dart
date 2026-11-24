@@ -6,8 +6,8 @@ enum QboxRole { business, customer, supplier }
 
 /// Choices made during sign-up. Kept above the pages so Back does not
 /// clear them, and the next onboarding step can read them later.
-/// After login it also holds the logged-in [user].
-class OnboardingDraft {
+/// After login it also holds the logged-in [user]; screens follow its changes.
+class OnboardingDraft extends ChangeNotifier {
   final Set<QboxRole> roles = <QboxRole>{};
   int formIndex = 0;
   String mobileNumber = '';
@@ -33,6 +33,7 @@ class OnboardingDraft {
     shop.shopName = account.shop?.shopName ?? '';
     customer.fullName = account.customer?.fullName ?? '';
     supplier.supplierName = account.supplier?.supplierName ?? '';
+    notifyListeners();
   }
 
   /// Forgets everything, for log out.
@@ -106,14 +107,14 @@ class SupplierRegistration {
   String address = '';
 }
 
-class OnboardingScope extends InheritedWidget {
+class OnboardingScope extends InheritedNotifier<OnboardingDraft> {
   const OnboardingScope({
-    required this.draft,
+    required OnboardingDraft draft,
     required super.child,
     super.key,
-  });
+  }) : super(notifier: draft);
 
-  final OnboardingDraft draft;
+  OnboardingDraft get draft => notifier!;
 
   static OnboardingDraft of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<OnboardingScope>();
@@ -121,7 +122,7 @@ class OnboardingScope extends InheritedWidget {
     return scope!.draft;
   }
 
-  @override
-  bool updateShouldNotify(OnboardingScope oldWidget) =>
-      oldWidget.draft != draft;
+  /// Without following its changes (for use after the screen is built).
+  static OnboardingDraft read(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<OnboardingScope>()!.draft;
 }

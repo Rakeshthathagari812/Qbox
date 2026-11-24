@@ -28,7 +28,7 @@ class CheckoutFailed extends CheckoutResult {
   final String message;
 }
 
-/// Opens a payment screen for an udhaar payment. Tests use a pretend one.
+/// Opens a payment screen. Tests use a pretend one.
 abstract class Checkout {
   Future<CheckoutResult> pay(UdhaarPayStart start);
 }
@@ -71,7 +71,7 @@ class RazorpayCheckout implements Checkout {
         'amount': start.payment.amountPaise,
         'currency': 'INR',
         'name': start.shopName,
-        'description': 'Udhaar payment',
+        'description': start.description,
         'prefill': {'contact': start.contact},
         'theme': {'color': '#651CE4'},
         'retry': {'enabled': true, 'max_count': 2},

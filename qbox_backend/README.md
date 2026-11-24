@@ -48,6 +48,16 @@ this PC blocks the small `.exe` launchers (uvicorn.exe, alembic.exe) inside `.ve
 | POST | `/api/udhaar/customers/{id}/entries` | Yes, shop |
 | POST | `/api/udhaar/entries/{id}/delete` | Yes, shop (kept, with reason) |
 | GET | `/api/udhaar/mine`, `/api/udhaar/mine/{id}` | Yes, customer (own udhaar only) |
+| GET | `/api/customer/transactions?month=2026-11` | Yes, customer (own udhaar lines and payments; this month if empty) |
+| POST | `/api/customer/records`, `/records/{id}/same`, `/different` | Yes, customer (payments they add; private to them) |
+| PUT | `/api/customer/expenses/{item}`, `/api/customer/budget` | Yes, customer (category or leave out / monthly budget) |
+| PUT | `/api/me/shop`, `/api/me/customer`, `/api/me/supplier` | Yes (own details) |
+| POST | `/api/me/roles` | Yes (one more role; needs the PIN) |
+| PUT / DELETE | `/api/me/photo/{role}` | Yes (own photo) |
+| GET | `/api/photos/{ref}` | Yes (own photo, or a shop's) |
+| POST | `/api/me/pin`, `/api/me/logout-all` | Yes (change PIN with the old one; log out everywhere) |
+| GET / POST / PUT | `/api/notices`, `/unread`, `/read`, `/off` | Yes (the bell, own news only) |
+| GET / PUT / DELETE | `/api/customer/pages`, `/pages/{ref}` | Yes, customer (checklists and notes; private to them) |
 | POST | `/api/udhaar/mine/{id}/not-me` (and `/cancel`) | Yes, customer (only a report) |
 | POST | `/api/udhaar/customers/{id}/dispute/confirm` or `/unlink` | Yes, shop (decides the report) |
 | POST | `/api/udhaar/customers/{id}/number/otp`, `/number` | Yes, shop (new number, needs its code) |
@@ -63,6 +73,13 @@ this PC blocks the small `.exe` launchers (uvicorn.exe, alembic.exe) inside `.ve
 | GET | `/api/payments/{id}` | Yes, the shop or the customer who paid (checks Razorpay while waiting) |
 | POST | `/api/payments/{id}/cancel` | Yes, shop |
 | POST | `/api/payments/udhaar/{book_id}` | Yes, customer (Razorpay order to pay udhaar) |
+| GET | `/api/payments/shops` | Yes, customer (linked shops and shops paid before) |
+| GET | `/api/payments/settings/qr` | Yes, shop (its own QR for customers to scan) |
+| POST | `/api/payments/shops/scan` | Yes, customer (the shop whose QBOX QR was scanned) |
+| POST | `/api/payments/shops/find` | Yes, customer (a shop by its login number; limited per hour) |
+| POST | `/api/payments/shop` | Yes, customer (pay a shop: Razorpay, or the shop's own UPI ID) |
+| POST | `/api/payments/{id}/claim`, `/drop` | Yes, customer (I paid by UPI / I did not) |
+| POST | `/api/payments/{id}/confirm`, `/not-received` | Yes, shop (checks its bank, then answers) |
 | POST | `/api/payments/{id}/verify` | Yes, customer (payment screen's signature checked) |
 | GET | `/api/stock/items` | Yes, shop (own stock: quantities, value, low count) |
 | POST | `/api/stock/items`, `/api/stock/items/bulk` | Yes, shop (one item, or many from the ready list) |
@@ -93,6 +110,8 @@ app/
   users/         GET /api/me
   calendar/      events (per user and role) and the festival list
   udhaar/        credit book: customers (added by OTP), entries, "My Udhaar"
+  customer/      the customer's transaction history and expenses (udhaar lines, payments
+                 they made, and records they add themselves)
   language/      speech-to-text and translation (passes them to the QBOX AI server, ../qbox_ai)
   stock/         items and stock moves (in, sold, corrected); quantity = sum of moves
   suppliers/     suppliers, the shop's account with them, orders (purchases add stock via stock/)
@@ -155,6 +174,11 @@ Control blocks psycopg's `libpq` DLL.
 | Udhaar: money in whole paise, balance always calculated, entries never erased (deleted = kept with reason) | `udhaar_entries` table |
 | Udhaar: the same entry sent twice (phone retry after offline) is kept once | `client_ref` |
 | Udhaar: "This is not me" is only a report; nothing is hidden until the shop unlinks it. Once the shop confirms, it cannot be reported again | `udhaar/service.not_me`, `_resolve` |
+| Transactions: a customer sees only lines against their own number and payments they made; a QBOX payment shows once | `customer/service.py` |
+| Profile photos: only a plain JPEG is kept (no place or phone details); a shop's is seen by customers, others only by their owner | `users/photos.py` |
+| Changing the PIN needs the old one; wrong tries lock the account like wrong logins | `users/profile.change_pin` |
+| The bell only reads; nobody is told about another's book, payments or stock | `notices/service.py` |
+| Checklists and notes: only their owner sees them; a retry counts once; two phones' changes are joined; a deleted one is emptied | `customer/pages.py` |
 | Stock: quantities in thousandths of the unit (1.5 kg = 1500), always the sum of the moves; moves never erased, corrections need a reason | `stock/service.py`, `stock_moves` table |
 | Stock: a shop sees only its own items; one live item per name; the same move sent twice is kept once | `stock/service.py`, `client_ref` |
 | Suppliers: balance always from entries; entries never erased (deleted = kept with reason); payments pay off the oldest purchases first for the pay-by date | `suppliers/service.py` |
@@ -165,6 +189,8 @@ Control blocks psycopg's `libpq` DLL.
 | Payments: each Razorpay payment counted once; udhaar gets exactly one PAYMENT entry | `gateway_payment_id` unique, row lock, `client_ref` |
 | Payments: a customer's payment is checked with Razorpay's signature, then with Razorpay itself | `service.verify` |
 | Payments: a shop sees only its own payments; a customer only the ones they made | `service._visible` |
+| Pay to Shop: a shop is found only by its OTP-checked login number, 20 look-ups per hour per account | `payments/direct.py`, `ratelimit.py` |
+| Pay to Shop by UPI: the customer's "I paid" counts only after the shop confirms; the first answer stands | `direct.answer` |
 | Payments: at most 60 QRs per shop / 10 udhaar payments per customer in 10 minutes | `service._check_rate` |
 
 ## Payments (Razorpay)

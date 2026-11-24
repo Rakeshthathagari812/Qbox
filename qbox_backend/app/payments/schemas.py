@@ -1,11 +1,13 @@
 """What the payment APIs accept and return. Money is always whole paise (₹1 = 100)."""
 
+import enum
 import re
 from datetime import date, datetime
 from typing import Annotated
 
 from pydantic import AfterValidator, Field, field_validator
 
+from app.auth.schemas import Mobile
 from app.models import PaymentSource, PaymentStatus
 from app.schemas import CamelModel
 from app.udhaar.schemas import MAX_ENTRY_PAISE, ClientRef
@@ -85,7 +87,7 @@ class PaymentOut(CamelModel):
     amount_paise: int
     note: str | None
     udhaar_customer_id: int | None
-    # The udhaar customer's name, when the payment is for udhaar.
+    # The udhaar customer's name, or the customer who paid (Pay to Shop).
     customer_name: str | None
     payer_vpa: str | None
     method: str | None
@@ -95,6 +97,8 @@ class PaymentOut(CamelModel):
     test_mode: bool
     expires_at: datetime | None
     paid_at: datetime | None
+    # UPI (Pay to Shop): when the customer said they paid; the shop confirms.
+    claimed_at: datetime | None = None
     created_at: datetime
 
 
@@ -103,6 +107,8 @@ class PaymentsDayOut(CamelModel):
     total_paise: int
     count: int
     payments: list[PaymentOut]  # paid that day, newest first
+    # UPI payments customers say they made, waiting for the shop's answer.
+    to_confirm: list[PaymentOut] = []
 
 
 class UdhaarPayIn(CamelModel):
@@ -126,3 +132,66 @@ class VerifyIn(CamelModel):
     razorpay_payment_id: Annotated[str, Field(min_length=5, max_length=40)]
     razorpay_order_id: Annotated[str, Field(min_length=5, max_length=40)]
     razorpay_signature: Annotated[str, Field(min_length=10, max_length=200)]
+
+
+class PayMethodChoice(str, enum.Enum):
+    ONLINE = "ONLINE"  # Razorpay's payment screen, confirmed by itself
+    UPI = "UPI"  # the shop's own UPI ID, confirmed by the shop
+
+
+class FindShopIn(CamelModel):
+    mobile: Mobile
+
+
+class ScanShopIn(CamelModel):
+    code: Annotated[str, Field(pattern=r"^[a-z2-7]{16}$")]
+
+
+class ShopQrOut(CamelModel):
+    shop_name: str
+    data: str  # what the QR holds
+    works_in_upi_apps: bool  # the shop has a UPI ID, so PhonePe / GPay can read it too
+
+
+class PayShopOut(CamelModel):
+    """A shop the customer can pay."""
+
+    ref: str  # sent back when paying
+    shop_name: str
+    shop_category: str | None
+    shop_photo: str | None
+    book_id: int | None
+    due_paise: int  # udhaar owed there (paid separately)
+    online: bool
+    test_mode: bool  # online payments are pretend money
+    upi: bool
+
+
+class UnfinishedOut(CamelModel):
+    payment: PaymentOut
+    shop_name: str
+
+
+class PayShopsOut(CamelModel):
+    shops: list[PayShopOut]
+    unfinished: list[UnfinishedOut]  # opened a UPI app, "did you pay?" not answered
+
+
+class ShopPayIn(CamelModel):
+    ref: Annotated[str, Field(pattern=r"^((book|paid):[0-9]{1,15}|mobile:[6-9][0-9]{9}|code:[a-z2-7]{16})$")]
+    amount_paise: Amount
+    note: Note = None
+    method: PayMethodChoice
+    client_ref: ClientRef
+
+
+class ShopPayOut(CamelModel):
+    """Everything the app needs to open Razorpay's screen, or a UPI app."""
+
+    payment: PaymentOut
+    shop_name: str
+    contact: str
+    key_id: str | None
+    order_id: str | None
+    upi_id: str | None
+    upi_name: str | None

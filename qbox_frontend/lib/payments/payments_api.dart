@@ -41,6 +41,28 @@ abstract class PaymentsApi {
   // Customer side
   Future<UdhaarPayStart> startUdhaarPayment(int bookId, int amountPaise, String clientRef);
 
+  /// Shops the customer can pay: linked, and paid before.
+  Future<PayShops> payShops();
+
+  /// The shop with this QBOX login number (limited per hour).
+  Future<PayShop> findShop(String mobile);
+
+  /// The shop whose QBOX QR was scanned.
+  Future<PayShop> scanShop(String code);
+
+  /// Shop side: its own QR.
+  Future<ShopQrCode> shopQr();
+
+  /// [upi] = the shop's own UPI ID; otherwise Razorpay's payment screen.
+  Future<ShopPayStart> startShopPayment(PayShop shop, int amountPaise, String clientRef, {required bool upi, String? note});
+
+  /// "I paid by UPI" (the shop confirms) / "I did not pay".
+  Future<Payment> claimUpi(int paymentId);
+  Future<Payment> dropUpi(int paymentId);
+
+  // Shop side: did the customer's UPI money come?
+  Future<Payment> answerUpi(int paymentId, {required bool received});
+
   /// What Razorpay's payment screen returned, checked by the backend.
   Future<Payment> verify(int paymentId, {
     required String razorpayPaymentId,
@@ -128,6 +150,45 @@ class HttpPaymentsApi implements PaymentsApi {
     await _api.post('$_base/udhaar/$bookId', {'amountPaise': amountPaise, 'clientRef': clientRef}, timeout: _slow),
     UdhaarPayStart.fromJson,
   );
+
+  @override
+  Future<PayShops> payShops() async => _read(await _api.get('$_base/shops'), PayShops.fromJson);
+
+  @override
+  Future<PayShop> findShop(String mobile) async =>
+      _read(await _api.post('$_base/shops/find', {'mobile': mobile}), PayShop.fromJson);
+
+  @override
+  Future<PayShop> scanShop(String code) async =>
+      _read(await _api.post('$_base/shops/scan', {'code': code}), PayShop.fromJson);
+
+  @override
+  Future<ShopQrCode> shopQr() async => _read(await _api.get('$_base/settings/qr'), ShopQrCode.fromJson);
+
+  @override
+  Future<ShopPayStart> startShopPayment(PayShop shop, int amountPaise, String clientRef,
+      {required bool upi, String? note}) async => _read(
+    await _api.post('$_base/shop', {
+      'ref': shop.ref,
+      'amountPaise': amountPaise,
+      'method': upi ? 'UPI' : 'ONLINE',
+      'note': note,
+      'clientRef': clientRef,
+    }, timeout: _slow),
+    ShopPayStart.fromJson,
+  );
+
+  @override
+  Future<Payment> claimUpi(int paymentId) async =>
+      _read(await _api.post('$_base/$paymentId/claim', {}), Payment.fromJson);
+
+  @override
+  Future<Payment> dropUpi(int paymentId) async =>
+      _read(await _api.post('$_base/$paymentId/drop', {}), Payment.fromJson);
+
+  @override
+  Future<Payment> answerUpi(int paymentId, {required bool received}) async =>
+      _read(await _api.post('$_base/$paymentId/${received ? 'confirm' : 'not-received'}', {}), Payment.fromJson);
 
   @override
   Future<Payment> verify(int paymentId, {

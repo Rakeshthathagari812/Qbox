@@ -1,4 +1,9 @@
-"""What the app receives about the logged-in user."""
+"""What the app receives and may change about the logged-in user."""
+
+import re
+from typing import Annotated
+
+from pydantic import AfterValidator, Field
 
 from app.models import Role
 from app.schemas import CamelModel
@@ -13,6 +18,7 @@ class ShopOut(CamelModel):
     shop_category_detail: str | None
     address: str
     contact_number: str
+    photo: str | None = None  # its ref
 
 
 class CustomerOut(CamelModel):
@@ -22,6 +28,7 @@ class CustomerOut(CamelModel):
     email: str | None
     address: str | None
     aadhaar_link_requested: bool
+    photo: str | None = None
 
 
 class SupplierOut(CamelModel):
@@ -32,6 +39,7 @@ class SupplierOut(CamelModel):
     products_supplied: str
     contact_number: str
     address: str
+    photo: str | None = None
 
 
 class MeOut(CamelModel):
@@ -41,3 +49,36 @@ class MeOut(CamelModel):
     shop: ShopOut | None
     customer: CustomerOut | None
     supplier: SupplierOut | None
+
+
+def _email(value: str | None) -> str | None:
+    if value and value.strip() and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value.strip()):
+        raise ValueError("Enter a valid email")
+    return value
+
+
+def _name(value: str) -> str:
+    if not value.strip():
+        raise ValueError("Enter your name")
+    return value
+
+
+Email = Annotated[str | None, Field(max_length=160), AfterValidator(_email)]
+
+
+class CustomerEditIn(CamelModel):
+    full_name: Annotated[str, Field(max_length=120), AfterValidator(_name)]
+    email: Email = None
+    address: Annotated[str | None, Field(max_length=300)] = None
+
+
+class PhotoIn(CamelModel):
+    jpeg: Annotated[str, Field(max_length=420_000)]  # base64
+
+
+class PhotoOut(CamelModel):
+    jpeg: str
+
+
+class TokenOut(CamelModel):
+    access_token: str

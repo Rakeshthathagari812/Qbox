@@ -6,8 +6,7 @@ import 'language_packs.dart';
 import 'languages.dart';
 import 'translation_service.dart';
 
-/// One "Speak in" language shared by every voice feature (Udhaar, Calculator,
-/// Calendar). Numbers are read on the phone; the rest of the sentence is
+/// One "Speak in" language shared by every voice feature. Numbers are read on the phone; the rest of the sentence is
 /// translated to English (on the QBOX server, or on the phone when offline) and
 /// then understood by the same rules as English speech.
 
@@ -49,7 +48,7 @@ Future<AppLanguage?> pickVoiceLanguage(
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                'Used for voice in Udhaar, Calculator and Calendar.',
+                'Used for voice everywhere in QBOX.',
                 style: TextStyle(fontFamily: 'Poppins', fontSize: 12, color: body),
               ),
             ),

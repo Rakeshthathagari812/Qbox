@@ -4,6 +4,7 @@ import '../calendar/calendar_models.dart' show longDate;
 import '../services/api_client.dart';
 import '../services/app_services.dart';
 import '../services/device_actions.dart';
+import '../widgets/whatsapp_icon.dart';
 import '../udhaar/udhaar_models.dart' show rupees, whenLabel;
 import '../udhaar/udhaar_widgets.dart';
 import 'order_screen.dart';
@@ -209,7 +210,8 @@ class _SupplierScreenState extends State<SupplierScreen> {
                                   await _app.device.openLink(whatsAppLink(mobile, ''));
                                 }
                               },
-                              icon: const Icon(Icons.chat_rounded),
+                              icon: const WhatsAppIcon(),
+                              tooltip: 'WhatsApp',
                             ),
                           ],
                         ],

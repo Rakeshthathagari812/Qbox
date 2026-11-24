@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.auth import otp
 from app.config import get_settings
@@ -40,6 +40,7 @@ from app.udhaar.schemas import (
     MyBookDetailOut,
     MyBookOut,
 )
+from app.users import photos
 
 MAX_CUSTOMERS_PER_SHOP = 5000
 MAX_ENTRIES_PER_CUSTOMER = 10000
@@ -428,6 +429,9 @@ def _book_out(customer: UdhaarCustomer, shop: ShopProfile | None, stats: _Stats)
         book_id=customer.id,
         shop_name=shop.shop_name if shop else "Shop",
         shop_phone=shop.contact_number if shop else None,
+        shop_category=(shop.shop_category_detail or shop.shop_category) if shop else None,
+        shop_address=shop.address if shop else None,
+        shop_photo=photos.ref_of(object_session(shop), shop.user_id, Role.BUSINESS) if shop else None,
         balance_paise=stats.balance,
         last_entry_at=stats.last_entry_at,
         dispute=Dispute(customer.dispute_status or Dispute.NONE.value),

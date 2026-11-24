@@ -4,11 +4,11 @@ and the messages the app shows when something is wrong."""
 import re
 from typing import Annotated
 
-from pydantic import AfterValidator, Field, field_validator
+from pydantic import AfterValidator, Field
 
 from app.models import OtpPurpose, Role
 from app.schemas import CamelModel
-from app.users.schemas import MeOut
+from app.users.schemas import Email, MeOut
 
 MOBILE_MESSAGE = "Enter a 10-digit mobile number"
 
@@ -99,16 +99,9 @@ class ShopIn(CamelModel):
 class CustomerIn(CamelModel):
     full_name: Annotated[str, Field(max_length=120), needs("Enter your name")]
     mobile_number: Mobile
-    email: str | None = Field(default=None, max_length=160)
+    email: Email = None
     address: str | None = Field(default=None, max_length=300)
     aadhaar_link_requested: bool = False
-
-    @field_validator("email")
-    @classmethod
-    def email_looks_valid(cls, value: str | None) -> str | None:
-        if value and value.strip() and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value.strip()):
-            raise ValueError("Enter a valid email")
-        return value
 
 
 class SupplierIn(CamelModel):
@@ -129,6 +122,18 @@ class RegisterIn(CamelModel):
     supplier: SupplierIn | None = None
 
 
+class AddRoleIn(CamelModel):
+    role: Role
+    pin: Pin
+    shop: ShopIn | None = None
+    customer: CustomerIn | None = None
+    supplier: SupplierIn | None = None
+
+    @property
+    def roles(self) -> set[Role]:
+        return {self.role}
+
+
 class LoginIn(CamelModel):
     mobile: Mobile
     pin: Pin
@@ -136,6 +141,11 @@ class LoginIn(CamelModel):
 
 class ResetPinIn(CamelModel):
     verification_token: VerificationToken
+    new_pin: NewPin
+
+
+class ChangePinIn(CamelModel):
+    old_pin: Pin
     new_pin: NewPin
 
 

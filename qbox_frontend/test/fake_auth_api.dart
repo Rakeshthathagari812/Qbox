@@ -4,10 +4,15 @@ import 'package:qbox_app/calendar/calendar_api.dart';
 import 'package:qbox_app/calendar/calendar_models.dart';
 import 'package:qbox_app/calendar/calendar_store.dart';
 import 'package:qbox_app/calendar/reminders.dart';
+import 'package:qbox_app/customer/pages_repository.dart';
+import 'package:qbox_app/customer/transactions_repository.dart';
 import 'package:qbox_app/models/qbox_user.dart';
 import 'package:qbox_app/onboarding_draft.dart';
 import 'package:qbox_app/payments/checkout.dart';
 import 'package:qbox_app/payments/payments_api.dart';
+import 'package:qbox_app/profile/notices.dart';
+import 'package:qbox_app/profile/photos.dart';
+import 'package:qbox_app/profile/profile_api.dart';
 import 'package:qbox_app/services/app_services.dart';
 import 'package:qbox_app/services/auth_api.dart';
 import 'package:qbox_app/services/device_actions.dart';
@@ -26,13 +31,21 @@ import 'package:qbox_app/udhaar/udhaar_models.dart';
 import 'package:qbox_app/udhaar/udhaar_repository.dart';
 import 'package:qbox_app/udhaar/udhaar_store.dart';
 
+import 'fake_notices.dart';
+import 'fake_pages.dart';
 import 'fake_payments.dart';
+import 'fake_profile.dart';
 import 'fake_stock.dart';
 import 'fake_suppliers.dart';
+import 'fake_transactions.dart';
 
+export 'fake_notices.dart';
+export 'fake_pages.dart';
 export 'fake_payments.dart';
+export 'fake_profile.dart';
 export 'fake_stock.dart';
 export 'fake_suppliers.dart';
+export 'fake_transactions.dart';
 
 /// A pretend backend for widget tests. It follows the same rules as the
 /// FastAPI one: the OTP is always 123456, a mobile can register once,
@@ -265,7 +278,16 @@ AppServices fakeServices({
   StockStore? stockStore,
   SupplierApi? suppliers,
   SupplierStore? supplierStore,
+  TransactionsApi? transactions,
+  TransactionsStore? transactionsStore,
+  PagesApi? pages,
+  PagesStore? pagesStore,
+  ProfileApi? profile,
+  PhotoPicker? photoPicker,
+  PhotoStore? photoStore,
+  NoticesApi? notices,
 }) {
+  final profileApi = profile ?? FakeProfileApi();
   return AppServices(
     auth: api ?? FakeAuthApi(),
     session: session ?? MemorySessionStore(),
@@ -286,6 +308,15 @@ AppServices fakeServices({
     checkout: checkout ?? FakeCheckout(),
     stock: StockRepository(stock ?? FakeStockApi(), stockStore ?? MemoryStockStore()),
     suppliers: SupplierRepository(suppliers ?? FakeSupplierApi(), supplierStore ?? MemorySupplierStore()),
+    transactions: TransactionsRepository(
+      transactions ?? FakeTransactionsApi(),
+      transactionsStore ?? MemoryTransactionsStore(),
+    ),
+    pages: PagesRepository(pages ?? FakePagesApi(), pagesStore ?? MemoryPagesStore()),
+    profile: profileApi,
+    photos: PhotoRepository(profileApi, photoStore ?? MemoryPhotoStore()),
+    photoPicker: photoPicker ?? FakePhotoPicker(),
+    notices: notices ?? FakeNoticesApi(),
   );
 }
 
@@ -432,6 +463,8 @@ class FakeUdhaarApi implements UdhaarApi {
       bookId: b.bookId,
       shopName: b.shopName,
       shopPhone: b.shopPhone,
+      shopCategory: b.shopCategory,
+      shopAddress: b.shopAddress,
       balancePaise: b.balancePaise,
       lastEntryAt: b.lastEntryAt,
       dispute: dispute,

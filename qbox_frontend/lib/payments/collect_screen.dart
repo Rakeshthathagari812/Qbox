@@ -15,6 +15,7 @@ import '../udhaar/udhaar_widgets.dart';
 import '../udhaar/voice_udhaar.dart' show digitsAmount;
 import 'payment_models.dart';
 import 'payment_settings_screen.dart';
+import 'shop_qr_screen.dart';
 
 /// Opens the Collect screen (the "QR & UPI" home tile).
 Widget openCollect(BuildContext context) => const CollectScreen();
@@ -475,7 +476,15 @@ class _CollectScreenState extends State<CollectScreen> {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
           ),
         ),
-        const SizedBox(height: 20),
+        Center(
+          child: TextButton.icon(
+            key: const Key('collect-shop-qr'),
+            onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => const ShopQrScreen())),
+            icon: const Icon(Icons.storefront_rounded),
+            label: const Text('My shop QR (no amount, to print)'),
+          ),
+        ),
+        const SizedBox(height: 8),
         SizedBox(
           height: 56,
           child: FilledButton.icon(

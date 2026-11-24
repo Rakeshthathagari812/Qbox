@@ -4,10 +4,9 @@ import 'widgets/qbox_brand.dart';
 
 import 'customer_home_screen.dart';
 import 'onboarding_draft.dart';
-import 'services/app_services.dart';
+import 'profile/log_out.dart';
 import 'shop_home_screen.dart';
 import 'supplier_home_screen.dart';
-import 'welcome_screen.dart';
 import 'widgets/qbox_wave.dart';
 import 'widgets/signup_column.dart';
 import 'widgets/signup_motion.dart';
@@ -87,7 +86,7 @@ class ChooseRoleScreen extends StatelessWidget {
                   Center(
                     child: TextButton.icon(
                       key: const Key('log-out'),
-                      onPressed: () => _logOut(context),
+                      onPressed: () => logOut(context),
                       icon: const Icon(Icons.logout, size: 18),
                       label: const Text('Log out'),
                       style: TextButton.styleFrom(
@@ -108,21 +107,6 @@ class ChooseRoleScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Forgets the saved login and goes back to the Welcome screen.
-Future<void> _logOut(BuildContext context) async {
-  final services = ServicesScope.of(context);
-  final draft = OnboardingScope.of(context);
-  final navigator = Navigator.of(context);
-  // The next person on this phone must not see this user's login,
-  // calculations, calendar or reminders.
-  await services.forgetUserData();
-  draft.clear();
-  navigator.pushAndRemoveUntil(
-    signupRoute(const WelcomeScreen()),
-    (route) => false,
-  );
 }
 
 class _RoleChoice extends StatelessWidget {

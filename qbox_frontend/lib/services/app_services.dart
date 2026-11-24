@@ -5,8 +5,13 @@ import '../calculator/voice_services.dart';
 import '../calendar/calendar_api.dart';
 import '../calendar/calendar_store.dart';
 import '../calendar/reminders.dart';
+import '../customer/pages_repository.dart';
+import '../customer/transactions_repository.dart';
 import '../payments/checkout.dart';
 import '../payments/payments_api.dart';
+import '../profile/notices.dart';
+import '../profile/photos.dart';
+import '../profile/profile_api.dart';
 import '../stock/stock_api.dart';
 import '../stock/stock_repository.dart';
 import '../stock/stock_store.dart';
@@ -45,6 +50,12 @@ class AppServices {
     required this.checkout,
     required this.stock,
     required this.suppliers,
+    required this.transactions,
+    required this.pages,
+    required this.profile,
+    required this.photos,
+    required this.photoPicker,
+    required this.notices,
   });
 
   /// The real backend, on-phone storage, microphone, speaker and notifications.
@@ -53,6 +64,7 @@ class AppServices {
     final api = ApiClient(baseUrl: qboxApiBaseUrl(), token: session.readToken);
     final language = HttpLanguageApi(api);
     final settings = PrefsSettingsStore();
+    final profile = HttpProfileApi(api);
     return AppServices(
       auth: HttpAuthApi(api),
       session: session,
@@ -77,6 +89,12 @@ class AppServices {
       checkout: RazorpayCheckout(),
       stock: StockRepository(HttpStockApi(api), SecureStockStore()),
       suppliers: SupplierRepository(HttpSupplierApi(api), SecureSupplierStore()),
+      transactions: TransactionsRepository(HttpTransactionsApi(api), SecureTransactionsStore()),
+      pages: PagesRepository(HttpPagesApi(api), SecurePagesStore()),
+      profile: profile,
+      photos: PhotoRepository(profile, SecurePhotoStore()),
+      photoPicker: PhonePhotoPicker(),
+      notices: HttpNoticesApi(api),
     );
   }
 
@@ -109,6 +127,30 @@ class AppServices {
   /// The shop's suppliers, its account with them, and orders.
   final SupplierRepository suppliers;
 
+  /// The customer's own history (udhaar and payments).
+  final TransactionsRepository transactions;
+
+  /// The customer's lists and notes.
+  final PagesRepository pages;
+
+  /// The user's own details, photos and PIN.
+  final ProfileApi profile;
+  final PhotoRepository photos;
+
+  /// The camera and gallery, for a profile photo.
+  final PhotoPicker photoPicker;
+
+  /// The bell.
+  final NoticesApi notices;
+
+  /// Changes made offline that the server does not have yet.
+  Future<int> unsentCount() async =>
+      await udhaar.pendingCount() +
+      await stock.pendingCount() +
+      await suppliers.pendingCount() +
+      await transactions.pendingCount() +
+      await pages.pendingCount();
+
   /// Forgets everything this user kept on the phone (log out, expired login).
   Future<void> forgetUserData() async {
     await session.clear();
@@ -118,6 +160,9 @@ class AppServices {
     await udhaar.clear();
     await stock.clear();
     await suppliers.clear();
+    await transactions.clear();
+    await pages.clear();
+    await photos.clear();
     await reminders.syncDues(const []);
   }
 }

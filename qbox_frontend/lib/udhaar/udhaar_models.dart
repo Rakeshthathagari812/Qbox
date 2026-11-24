@@ -328,6 +328,9 @@ class MyBook {
     required this.bookId,
     required this.shopName,
     this.shopPhone,
+    this.shopCategory,
+    this.shopAddress,
+    this.shopPhoto,
     this.balancePaise = 0,
     this.lastEntryAt,
     this.dispute = Dispute.none,
@@ -337,6 +340,11 @@ class MyBook {
   final int bookId;
   final String shopName;
   final String? shopPhone;
+  final String? shopCategory;
+  final String? shopAddress;
+
+  /// The ref of the shop's photo.
+  final String? shopPhoto;
   final int balancePaise;
   final DateTime? lastEntryAt;
   final Dispute dispute;
@@ -353,6 +361,9 @@ class MyBook {
       bookId: id,
       shopName: name,
       shopPhone: json['shopPhone'] as String?,
+      shopCategory: json['shopCategory'] as String?,
+      shopAddress: json['shopAddress'] as String?,
+      shopPhoto: json['shopPhoto'] as String?,
       balancePaise: _int(json['balancePaise']) ?? 0,
       lastEntryAt: _time(json['lastEntryAt']),
       dispute: Dispute.fromCode(json['dispute']),
@@ -364,6 +375,9 @@ class MyBook {
     'bookId': bookId,
     'shopName': shopName,
     'shopPhone': shopPhone,
+    'shopCategory': shopCategory,
+    'shopAddress': shopAddress,
+    'shopPhoto': shopPhoto,
     'balancePaise': balancePaise,
     'lastEntryAt': lastEntryAt?.toUtc().toIso8601String(),
     'dispute': dispute.code,

@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import otp
-from app.auth.schemas import AuthOut, RegisterIn, SendOtpOut, VerifyOtpOut
+from app.auth.schemas import AddRoleIn, AuthOut, RegisterIn, SendOtpOut, VerifyOtpOut
 from app.config import get_settings
 from app.errors import ApiError
 from app.models import CustomerProfile, OtpPurpose, Role, ShopProfile, SupplierProfile, User, UserRole
@@ -67,7 +67,7 @@ def register(db: Session, body: RegisterIn) -> AuthOut:
     mobile, otp_id = read_verification(body.verification_token, OtpPurpose.SIGNUP)
     if _find_user(db, mobile) is not None:
         raise ApiError(409, "MOBILE_REGISTERED", ALREADY_REGISTERED)
-    _check_role_details(body)
+    check_role_details(body)
     otp.use_verification(db, otp_id, mobile, OtpPurpose.SIGNUP)
 
     user = User(mobile=mobile, pin_hash=hash_secret(body.pin))
@@ -79,16 +79,23 @@ def register(db: Session, body: RegisterIn) -> AuthOut:
         db.rollback()
         raise ApiError(409, "MOBILE_REGISTERED", ALREADY_REGISTERED) from None
 
-    user.roles = [UserRole(role=role.value) for role in body.roles]
+    give_roles(user, body)
+    db.commit()  # the account, its profiles and the used-up token are saved together, or not at all
+    return AuthOut(access_token=create_access_token(user.id, user.token_version), user=to_me(user))
+
+
+def give_roles(user: User, body: RegisterIn | AddRoleIn) -> None:
+    """Adds each role in [body] with its details (checked already). Not committed."""
+    user.roles.extend(UserRole(role=role.value) for role in body.roles)
     if Role.BUSINESS in body.roles:
         s = body.shop
         user.shop = ShopProfile(
             qbox_id=Role.BUSINESS.qbox_id(user.id),
             shop_name=s.shop_name.strip(),
             business_type=s.business_type,
-            business_type_detail=_detail(s.business_type, s.business_type_detail),
+            business_type_detail=other_detail(s.business_type, s.business_type_detail),
             shop_category=s.shop_category,
-            shop_category_detail=_detail(s.shop_category, s.shop_category_detail),
+            shop_category_detail=other_detail(s.shop_category, s.shop_category_detail),
             address=s.address.strip(),
             contact_number=s.contact_number,
         )
@@ -98,8 +105,8 @@ def register(db: Session, body: RegisterIn) -> AuthOut:
             qbox_id=Role.CUSTOMER.qbox_id(user.id),
             full_name=c.full_name.strip(),
             mobile_number=c.mobile_number,
-            email=_blank_to_none(c.email),
-            address=_blank_to_none(c.address),
+            email=blank_to_none(c.email),
+            address=blank_to_none(c.address),
             aadhaar_link_requested=c.aadhaar_link_requested,
         )
     if Role.SUPPLIER in body.roles:
@@ -108,22 +115,28 @@ def register(db: Session, body: RegisterIn) -> AuthOut:
             qbox_id=Role.SUPPLIER.qbox_id(user.id),
             supplier_name=s.supplier_name.strip(),
             business_type=s.business_type,
-            business_type_detail=_detail(s.business_type, s.business_type_detail),
+            business_type_detail=other_detail(s.business_type, s.business_type_detail),
             products_supplied=s.products_supplied.strip(),
             contact_number=s.contact_number,
             address=s.address.strip(),
         )
-    db.commit()  # the account, its profiles and the used-up token are saved together, or not at all
-    return AuthOut(access_token=create_access_token(user.id, user.token_version), user=to_me(user))
 
 
 def login(db: Session, mobile: str, pin: str) -> AuthOut:
-    settings = get_settings()
     user = _find_user(db, mobile, lock=True)
     if user is None:
         check_secret(pin, DUMMY_HASH)  # same wait as a real check, so unknown numbers are not revealed
         raise ApiError(401, "LOGIN_FAILED", WRONG_LOGIN)
 
+    check_pin(db, user, pin, ApiError(401, "LOGIN_FAILED", WRONG_LOGIN))
+    db.commit()
+    return AuthOut(access_token=create_access_token(user.id, user.token_version), user=to_me(user))
+
+
+def check_pin(db: Session, user: User, pin: str, wrong: ApiError) -> None:
+    """Raises [wrong], counting it; too many lock the account for a while.
+    The user's row must be locked, so the count cannot be skipped."""
+    settings = get_settings()
     now = datetime.now(UTC)
     if user.locked_until is not None and user.locked_until > now:
         raise _locked(math.ceil((user.locked_until - now).total_seconds() / 60))
@@ -137,12 +150,10 @@ def login(db: Session, mobile: str, pin: str) -> AuthOut:
             db.commit()
             raise _locked(minutes)
         db.commit()
-        raise ApiError(401, "LOGIN_FAILED", WRONG_LOGIN)
+        raise wrong
 
     user.failed_login_attempts = 0
     user.locked_until = None
-    db.commit()
-    return AuthOut(access_token=create_access_token(user.id, user.token_version), user=to_me(user))
 
 
 def reset_pin(db: Session, verification_token: str, new_pin: str) -> None:
@@ -167,32 +178,32 @@ def _locked(minutes: int) -> ApiError:
     return ApiError(423, "ACCOUNT_LOCKED", f"Too many wrong PINs. Try again in {wait} or reset your PIN")
 
 
-def _check_role_details(body: RegisterIn) -> None:
+def check_role_details(body: RegisterIn | AddRoleIn) -> None:
     if Role.BUSINESS in body.roles:
         if body.shop is None:
             raise _invalid("Please fill in your shop details")
-        _require_other_detail(body.shop.business_type, body.shop.business_type_detail, "Enter your business type")
-        _require_other_detail(body.shop.shop_category, body.shop.shop_category_detail, "Enter your shop category")
+        require_other_detail(body.shop.business_type, body.shop.business_type_detail, "Enter your business type")
+        require_other_detail(body.shop.shop_category, body.shop.shop_category_detail, "Enter your shop category")
     if Role.CUSTOMER in body.roles and body.customer is None:
         raise _invalid("Please fill in your customer details")
     if Role.SUPPLIER in body.roles:
         if body.supplier is None:
             raise _invalid("Please fill in your supplier details")
-        _require_other_detail(body.supplier.business_type, body.supplier.business_type_detail,
+        require_other_detail(body.supplier.business_type, body.supplier.business_type_detail,
                               "Enter your business type")
 
 
-def _require_other_detail(choice: str, detail: str | None, message: str) -> None:
+def require_other_detail(choice: str, detail: str | None, message: str) -> None:
     if choice == OTHER and not (detail and detail.strip()):
         raise _invalid(message)
 
 
-def _detail(choice: str, detail: str | None) -> str | None:
+def other_detail(choice: str, detail: str | None) -> str | None:
     """The typed-in detail is kept only when "Other" was chosen."""
-    return _blank_to_none(detail) if choice == OTHER else None
+    return blank_to_none(detail) if choice == OTHER else None
 
 
-def _blank_to_none(value: str | None) -> str | None:
+def blank_to_none(value: str | None) -> str | None:
     return value.strip() if value and value.strip() else None
 
 

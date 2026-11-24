@@ -11,6 +11,7 @@ import '../udhaar/udhaar_widgets.dart';
 import 'collect_screen.dart';
 import 'payment_models.dart';
 import 'payment_settings_screen.dart';
+import 'shop_qr_screen.dart';
 
 /// Opens the shop's Payments screen (the "Payments" home tile).
 Widget openPayments(BuildContext context) => const PaymentsScreen();
@@ -105,6 +106,40 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     }
   }
 
+  /// A customer says they paid by UPI: the shop checks its bank, then answers.
+  Future<void> _answer(Payment p, {required bool received}) async {
+    final who = p.customerName ?? 'the customer';
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(received ? 'Did ${rupees(p.amountPaise)} come?' : 'Money did not come?'),
+        content: Text(received
+            ? 'Check your bank or UPI app first. ${rupees(p.amountPaise)} from $who will be added to your payments.'
+            : '$who will see that you did not receive ${rupees(p.amountPaise)}. This cannot be changed later.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            key: const Key('confirm-upi-sure'),
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: received ? udPaid : udDue),
+            child: Text(received ? 'Yes, received' : 'Not received'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await _app.payments.answerUpi(p.id, received: received);
+      if (mounted) udNotify(context, received ? '${rupees(p.amountPaise)} confirmed' : 'Marked as not received');
+    } on ApiException catch (e) {
+      if (mounted) udNotify(context, e.isNetwork ? 'This needs internet. Please try again.' : e.message);
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    await _refresh(announce: false);
+  }
+
   Future<void> _go(Widget screen) async {
     await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => screen));
     if (!mounted) return;
@@ -127,6 +162,12 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               subtitle: 'Received today',
               busy: _busy,
               actions: [
+                IconButton(
+                  key: const Key('payments-qr'),
+                  onPressed: () => _go(const ShopQrScreen()),
+                  icon: const Icon(Icons.qr_code_2_rounded, color: udPurple),
+                  tooltip: 'My shop QR',
+                ),
                 IconButton(
                   key: const Key('payments-settings'),
                   onPressed: () => _go(const PaymentSettingsScreen()),
@@ -179,6 +220,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    for (final p in day?.toConfirm ?? const <Payment>[])
+                      _ConfirmCard(
+                        payment: p,
+                        now: _now,
+                        onReceived: _busy ? null : () => _answer(p, received: true),
+                        onNot: _busy ? null : () => _answer(p, received: false),
+                      ),
                     if (day != null && day.payments.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 32),
@@ -219,6 +267,55 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 }
 
+/// "Ravi says they paid ₹150 by UPI": received, or not?
+class _ConfirmCard extends StatelessWidget {
+  const _ConfirmCard({required this.payment, required this.now, required this.onReceived, required this.onNot});
+
+  final Payment payment;
+  final DateTime now;
+  final VoidCallback? onReceived;
+  final VoidCallback? onNot;
+
+  @override
+  Widget build(BuildContext context) {
+    final at = payment.claimedAt;
+    return Container(
+      key: Key('confirm-${payment.id}'),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      decoration: BoxDecoration(color: const Color(0xFFFFF4E6), borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${payment.customerName ?? 'A customer'} says they paid ${rupees(payment.amountPaise)} by UPI',
+            style: udText(14, weight: FontWeight.w700),
+          ),
+          if ((payment.note ?? '').isNotEmpty) Text(payment.note!, style: udText(12, color: udBody)),
+          if (at != null) Text(whenLabel(at, now), style: udText(11, color: udBody)),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            children: [
+              TextButton(
+                key: Key('confirm-no-${payment.id}'),
+                onPressed: onNot,
+                child: Text('Not received', style: udText(13, weight: FontWeight.w600, color: udDue)),
+              ),
+              FilledButton(
+                key: Key('confirm-yes-${payment.id}'),
+                onPressed: onReceived,
+                style: FilledButton.styleFrom(backgroundColor: udPaid),
+                child: const Text('Received'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PaymentTile extends StatelessWidget {
   const _PaymentTile({required this.payment, required this.now});
 
@@ -231,6 +328,7 @@ class _PaymentTile extends StatelessWidget {
       PaymentSource.udhaar => Icons.menu_book_rounded,
       PaymentSource.manual => Icons.account_balance_wallet_outlined,
       PaymentSource.counter => Icons.qr_code_2_rounded,
+      PaymentSource.direct => Icons.person_rounded,
     };
     final paidAt = payment.paidAt;
     return Container(

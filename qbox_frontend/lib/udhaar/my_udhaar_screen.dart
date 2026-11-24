@@ -5,14 +5,16 @@ import '../payments/pay_udhaar.dart';
 import '../services/api_client.dart';
 import '../services/app_services.dart';
 import '../services/device_actions.dart';
+import '../profile/photos.dart';
+import '../widgets/whatsapp_icon.dart';
 import 'udhaar_models.dart';
 import 'udhaar_widgets.dart';
 
 /// Opens "My Udhaar" (Customer home tile).
 Widget openMyUdhaar(BuildContext context) => const MyUdhaarScreen();
 
-/// The customer's own view: every shop that has written udhaar against their
-/// mobile number, read-only.
+/// The customer's own view, read-only: every shop that has them in its udhaar
+/// book, what they owe there, what kind of shop it is and how to reach it.
 class MyUdhaarScreen extends StatefulWidget {
   const MyUdhaarScreen({this.now, super.key});
 
@@ -23,8 +25,12 @@ class MyUdhaarScreen extends StatefulWidget {
 }
 
 class _MyUdhaarScreenState extends State<MyUdhaarScreen> {
+  /// With fewer shops than this, a search box would only be in the way.
+  static const _searchFrom = 5;
+
   AppServices? _services;
   List<MyBook>? _books;
+  String _search = '';
   bool _syncing = false;
   bool _offline = false;
 
@@ -75,9 +81,30 @@ class _MyUdhaarScreenState extends State<MyUdhaarScreen> {
     if (mounted) await _sync();
   }
 
+  Future<void> _call(String phone) async {
+    if (!await _app.device.openLink(callLink(phone)) && mounted) udNotify(context, 'Could not open the phone.');
+  }
+
+  Future<void> _message(String phone) async {
+    if (!await _app.device.openLink(smsLink(phone, '')) && mounted) udNotify(context, 'Could not open messages.');
+  }
+
+  Future<void> _whatsApp(String phone) async {
+    if (await _app.device.openLink(whatsAppAppLink(phone, ''))) return;
+    if (!await _app.device.openLink(whatsAppLink(phone, '')) && mounted) {
+      udNotify(context, 'WhatsApp is not installed on this phone.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final books = _books;
+    final searching = (books?.length ?? 0) >= _searchFrom;
+    final words = searching ? _search.trim().toLowerCase() : '';
+    final shown = [
+      for (final b in books ?? const <MyBook>[])
+        if ('${b.shopName} ${b.shopCategory ?? ''} ${b.shopAddress ?? ''}'.toLowerCase().contains(words)) b,
+    ];
     final owed = books?.fold<int>(0, (s, b) => s + (b.balancePaise > 0 ? b.balancePaise : 0)) ?? 0;
     final shops = books?.where((b) => b.balancePaise > 0).length ?? 0;
     return Scaffold(
@@ -87,10 +114,14 @@ class _MyUdhaarScreenState extends State<MyUdhaarScreen> {
           children: [
             UdHeader(title: 'My Udhaar', subtitle: 'What I owe at shops', busy: _syncing),
             if (_offline)
-              const UdBanner(
-                key: Key('myudhaar-offline'),
+              UdBanner(
+                key: const Key('myudhaar-offline'),
                 icon: Icons.wifi_off_rounded,
-                text: 'Offline: showing the last saved copy.',
+                text: books == null
+                    ? 'Offline: your udhaar is not saved on this phone yet.'
+                    : 'Offline: showing the last saved copy.',
+                actionLabel: 'Retry',
+                onAction: _syncing ? null : _sync,
               ),
             Expanded(
               child: RefreshIndicator(
@@ -126,58 +157,170 @@ class _MyUdhaarScreenState extends State<MyUdhaarScreen> {
                           style: udText(14, color: udBody),
                         ),
                       ),
-                    for (final b in books ?? const <MyBook>[])
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: Material(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(18),
-                          child: InkWell(
-                            key: Key('mybook-${b.bookId}'),
-                            borderRadius: BorderRadius.circular(18),
-                            onTap: () => _open(b),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Row(
-                                children: [
-                                  const CircleAvatar(
-                                    backgroundColor: udSoft,
-                                    child: Icon(Icons.storefront_rounded, color: udPurple),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(b.shopName, style: udText(15, weight: FontWeight.w700)),
-                                        if (b.lastEntryAt != null)
-                                          Text(
-                                            'Last: ${whenLabel(b.lastEntryAt!, _now)}',
-                                            style: udText(12, color: udBody),
-                                          ),
-                                        if (b.dispute == Dispute.reported)
-                                          const Padding(
-                                            padding: EdgeInsets.only(top: 4),
-                                            child: UdBadge('Reported: waiting for shop', color: udWarn),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Text(
-                                    balanceLabel(b.balancePaise),
-                                    style: udText(14, weight: FontWeight.w700, color: balanceColor(b.balancePaise)),
-                                  ),
-                                ],
-                              ),
+                    if (searching)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: TextField(
+                          key: const Key('myudhaar-search'),
+                          onChanged: (text) => setState(() => _search = text),
+                          style: udText(14),
+                          decoration: InputDecoration(
+                            hintText: 'Search shops',
+                            prefixIcon: const Icon(Icons.search_rounded, color: udPurple),
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              borderSide: BorderSide.none,
                             ),
                           ),
                         ),
+                      ),
+                    if (searching && shown.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Text(
+                          'No shop matches "${_search.trim()}".',
+                          key: const Key('myudhaar-no-match'),
+                          textAlign: TextAlign.center,
+                          style: udText(14, color: udBody),
+                        ),
+                      ),
+                    for (final b in shown)
+                      _ShopCard(
+                        book: b,
+                        now: _now,
+                        onOpen: () => _open(b),
+                        onCall: () => _call(b.shopPhone!),
+                        onMessage: () => _message(b.shopPhone!),
+                        onWhatsApp: () => _whatsApp(b.shopPhone!),
                       ),
                   ],
                 ),
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One shop in the list: who they are, what is owed, and how to reach them.
+class _ShopCard extends StatelessWidget {
+  const _ShopCard({
+    required this.book,
+    required this.now,
+    required this.onOpen,
+    required this.onCall,
+    required this.onMessage,
+    required this.onWhatsApp,
+  });
+
+  final MyBook book;
+  final DateTime now;
+  final VoidCallback onOpen;
+  final VoidCallback onCall;
+  final VoidCallback onMessage;
+  final VoidCallback onWhatsApp;
+
+  @override
+  Widget build(BuildContext context) {
+    final phone = book.shopPhone ?? '';
+    final category = book.shopCategory ?? '';
+    final address = book.shopAddress ?? '';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          key: Key('mybook-${book.bookId}'),
+          borderRadius: BorderRadius.circular(18),
+          onTap: onOpen,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    QboxPhoto(photo: book.shopPhoto, icon: Icons.storefront_rounded),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            book.shopName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: udText(15, weight: FontWeight.w700),
+                          ),
+                          if (category.isNotEmpty) Text(category, style: udText(12, color: udBody)),
+                          if (book.lastEntryAt != null)
+                            Text('Last: ${whenLabel(book.lastEntryAt!, now)}', style: udText(12, color: udBody)),
+                          if (book.dispute == Dispute.reported)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 4),
+                              child: UdBadge('Reported: waiting for shop', color: udWarn),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      balanceLabel(book.balancePaise),
+                      style: udText(14, weight: FontWeight.w700, color: balanceColor(book.balancePaise)),
+                    ),
+                  ],
+                ),
+                if (address.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(Icons.location_on_outlined, size: 16, color: udBody),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            address,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: udText(12, color: udBody),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (phone.isNotEmpty)
+                  Row(
+                    children: [
+                      Expanded(child: Text('+91 $phone', style: udText(13, weight: FontWeight.w600))),
+                      IconButton(
+                        key: Key('myudhaar-call-${book.bookId}'),
+                        onPressed: onCall,
+                        icon: const Icon(Icons.call_rounded, color: udPurple),
+                        tooltip: 'Call',
+                      ),
+                      IconButton(
+                        key: Key('myudhaar-message-${book.bookId}'),
+                        onPressed: onMessage,
+                        icon: const Icon(Icons.sms_rounded, color: udPurple),
+                        tooltip: 'Message (SMS)',
+                      ),
+                      IconButton(
+                        key: Key('myudhaar-whatsapp-${book.bookId}'),
+                        onPressed: onWhatsApp,
+                        icon: const WhatsAppIcon(),
+                        tooltip: 'WhatsApp',
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );

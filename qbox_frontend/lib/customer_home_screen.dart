@@ -5,7 +5,12 @@ import 'package:flutter/services.dart';
 
 import 'calculator/calculator_screen.dart';
 import 'calendar/calendar_screen.dart';
+import 'customer/checklist_notes_screen.dart';
+import 'customer/expenses_screen.dart';
+import 'customer/pay_shop_screen.dart';
+import 'customer/transactions_screen.dart';
 import 'onboarding_draft.dart';
+import 'profile/home_actions.dart';
 import 'translator/translator_screen.dart';
 import 'udhaar/my_udhaar_screen.dart';
 import 'widgets/qr_mark.dart';
@@ -84,60 +89,8 @@ class _TopBar extends StatelessWidget {
           ),
         ),
         Spacer(),
-        _Bell(),
-        SizedBox(width: 10),
-        _Profile(),
+        HomeActions(role: QboxRole.customer),
       ],
-    );
-  }
-}
-
-class _Bell extends StatelessWidget {
-  const _Bell();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 36,
-      height: 36,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Align(
-            alignment: Alignment.center,
-            child: Icon(Icons.notifications_none, color: _ink, size: 26),
-          ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color(0xFFE11D48),
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox(width: 8, height: 8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Profile extends StatelessWidget {
-  const _Profile();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFE4DDF3)),
-        color: Colors.white,
-      ),
-      child: const Icon(Icons.person_outline, color: _purple, size: 22),
     );
   }
 }
@@ -299,16 +252,19 @@ class _YourQboxCard extends StatelessWidget {
 class _ToolGrid extends StatelessWidget {
   const _ToolGrid();
 
+  /// My QR is not built yet (customers are found by phone number): hidden.
+  static const _showMyQr = false;
+
   static const _tools = [
-    _Tool('My QR', '(Customer ID)', qr: true),
-    _Tool('Pay to Shop', '(UPI)', icon: Icons.account_balance_wallet_outlined),
+    if (_showMyQr) _Tool('My QR', '(Customer ID)', qr: true),
+    _Tool('Pay to Shop', '(QR or number)', icon: Icons.account_balance_wallet_outlined, opens: openPayShop),
     _Tool('My Udhaar', '(Dues)', icon: Icons.receipt_long_outlined, opens: openMyUdhaar),
-    _Tool('My Shops', '(Linked Shops)', icon: Icons.storefront_outlined),
-    _Tool('Transaction History', '', icon: Icons.history),
+    _Tool('Transaction History', '', icon: Icons.history, opens: openTransactions),
     _Tool('Translator', '', icon: Icons.translate, opens: openTranslator),
     _Tool('Calculator', '', icon: Icons.calculate_outlined, opens: openCalculator),
     _Tool('Calendar', '', icon: Icons.calendar_month_outlined, opens: openCustomerCalendar),
-    _Tool('Expenses Tracking', '', coins: true),
+    _Tool('Expenses Tracking', '', coins: true, opens: openExpenses),
+    _Tool('Checklist & Notes', '', icon: Icons.checklist_rounded, opens: openChecklistNotes),
   ];
 
   @override

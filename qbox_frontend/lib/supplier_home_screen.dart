@@ -4,6 +4,7 @@ import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
 import 'onboarding_draft.dart';
+import 'profile/home_actions.dart';
 import 'widgets/qbox_wave.dart';
 
 /// Supplier home shown after the user chooses Supplier.
@@ -78,60 +79,8 @@ class _TopBar extends StatelessWidget {
           ),
         ),
         Spacer(),
-        _Bell(),
-        SizedBox(width: 10),
-        _Profile(),
+        HomeActions(role: QboxRole.supplier),
       ],
-    );
-  }
-}
-
-class _Bell extends StatelessWidget {
-  const _Bell();
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 36,
-      height: 36,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Align(
-            alignment: Alignment.center,
-            child: Icon(Icons.notifications_none, color: _ink, size: 26),
-          ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color(0xFFE11D48),
-                shape: BoxShape.circle,
-              ),
-              child: SizedBox(width: 8, height: 8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Profile extends StatelessWidget {
-  const _Profile();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFE4DDF3)),
-        color: Colors.white,
-      ),
-      child: const Icon(Icons.person_outline, color: _purple, size: 22),
     );
   }
 }

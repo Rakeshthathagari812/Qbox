@@ -17,11 +17,14 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
+    Text,
     Time,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -79,11 +82,13 @@ class EventCategory(str, enum.Enum):
 class PaymentSource(str, enum.Enum):
     """COUNTER = a QR shown at the counter (Razorpay tells us when it is paid).
     UDHAAR = a customer paid their udhaar from their own QBOX app.
-    MANUAL = paid to the shop's own UPI ID; the shop confirmed it by hand."""
+    MANUAL = paid to the shop's own UPI ID; the shop confirmed it by hand.
+    DIRECT = a customer paid the shop from their own QBOX app (Pay to Shop)."""
 
     COUNTER = "COUNTER"
     UDHAAR = "UDHAAR"
     MANUAL = "MANUAL"
+    DIRECT = "DIRECT"
 
 
 class PaymentStatus(str, enum.Enum):
@@ -91,6 +96,22 @@ class PaymentStatus(str, enum.Enum):
     PAID = "PAID"
     EXPIRED = "EXPIRED"
     CANCELLED = "CANCELLED"
+
+
+class ExpenseCategory(str, enum.Enum):
+    """Where a customer's money went. Matches ExpenseCategory in the Flutter app."""
+
+    GROCERIES = "GROCERIES"
+    FOOD = "FOOD"
+    TRAVEL = "TRAVEL"
+    BILLS = "BILLS"
+    HEALTH = "HEALTH"
+    EDUCATION = "EDUCATION"
+    CLOTHES = "CLOTHES"
+    HOME = "HOME"
+    FUN = "FUN"
+    FAMILY = "FAMILY"
+    OTHER = "OTHER"
 
 
 class Gateway(str, enum.Enum):
@@ -227,6 +248,20 @@ class SupplierProfile(Base):
     contact_number: Mapped[str] = mapped_column(String(10))
     address: Mapped[str] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProfilePhoto(Base):
+    """A user's photo in one role. [ref] is random and new for every photo."""
+
+    __tablename__ = "profile_photos"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    ref: Mapped[str] = mapped_column(String(32), unique=True)
+    jpeg: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class OtpCode(Base):
@@ -483,6 +518,8 @@ class ShopPaymentSettings(Base):
     razorpay_key_id: Mapped[str | None] = mapped_column(String(40))
     razorpay_secret: Mapped[str | None] = mapped_column(String(500))  # encrypted
     razorpay_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # In the shop's QBOX QR: random (cannot be guessed), not the phone number.
+    pay_code: Mapped[str | None] = mapped_column(String(16), unique=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -496,7 +533,7 @@ class Payment(Base):
     __table_args__ = (
         UniqueConstraint("shop_user_id", "client_ref", name="payments_shop_client_ref_key"),
         Index("idx_payments_shop", "shop_user_id", "status", "paid_at"),
-        CheckConstraint("source IN ('COUNTER', 'UDHAAR', 'MANUAL')", name="payments_source_check"),
+        CheckConstraint("source IN ('COUNTER', 'UDHAAR', 'MANUAL', 'DIRECT')", name="payments_source_check"),
         CheckConstraint("status IN ('WAITING', 'PAID', 'EXPIRED', 'CANCELLED')", name="payments_status_check"),
         CheckConstraint("amount_paise > 0", name="payments_amount_check"),
     )
@@ -510,7 +547,7 @@ class Payment(Base):
     # Set when the payment is for udhaar: a PAYMENT entry is added there once paid.
     udhaar_customer_id: Mapped[int | None] = mapped_column(ForeignKey("udhaar_customers.id", ondelete="SET NULL"))
     udhaar_entry_id: Mapped[int | None] = mapped_column(ForeignKey("udhaar_entries.id", ondelete="SET NULL"))
-    # The customer who paid from their own QBOX app (UDHAAR payments).
+    # The customer who paid from their own QBOX app (UDHAAR and DIRECT payments).
     payer_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     gateway: Mapped[str | None] = mapped_column(String(15))
     gateway_ref: Mapped[str | None] = mapped_column(String(40), unique=True)  # qr_..., plink_..., order_...
@@ -523,5 +560,110 @@ class Payment(Base):
     client_ref: Mapped[str] = mapped_column(String(40))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # DIRECT by UPI: when the customer said they paid (the shop then confirms).
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # ... and the shop answered
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomerRecord(Base):
+    """A payment the customer added themselves (cash, another app, or a QR they
+    scanned in QBOX). Private to them; QBOX cannot confirm it."""
+
+    __tablename__ = "customer_records"
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_ref", name="customer_records_client_ref_key"),
+        Index("idx_customer_records_user", "user_id", "spent_at"),
+        CheckConstraint("amount_paise > 0", name="customer_records_amount_check"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    scanned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    title: Mapped[str] = mapped_column(String(80))
+    upi_id: Mapped[str | None] = mapped_column(String(330))
+    amount_paise: Mapped[int] = mapped_column(BigInteger)
+    category: Mapped[str] = mapped_column(String(20))
+    spent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    note: Mapped[str | None] = mapped_column(String(200))
+    # They said it is not the same payment as another one of that day.
+    not_same: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # They said it is: kept in the history, not counted.
+    same: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    client_ref: Mapped[str] = mapped_column(String(40))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExpenseMark(Base):
+    """The customer's choice about an automatic expense ("entry-12", "payment-5"):
+    its category, or left out. The udhaar line or payment itself is not changed."""
+
+    __tablename__ = "expense_marks"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    item: Mapped[str] = mapped_column(String(40), primary_key=True)
+    category: Mapped[str | None] = mapped_column(String(20))
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class ExpenseBudget(Base):
+    """How much the customer wants to spend in a month."""
+
+    __tablename__ = "expense_budgets"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    month_paise: Mapped[int] = mapped_column(BigInteger)
+
+
+class NoticeSettings(Base):
+    """The bell of one role: everything up to [read_to] is read; kinds switched off."""
+
+    __tablename__ = "notice_settings"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    read_to: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    off: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+
+
+class NoticeRead(Base):
+    """One thing in the bell that was opened."""
+
+    __tablename__ = "notice_reads"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    notice: Mapped[str] = mapped_column(String(60), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PageKind(str, enum.Enum):
+    LIST = "LIST"  # a checklist
+    NOTE = "NOTE"
+
+
+class CustomerPage(Base):
+    """One of the customer's lists or notes. Private to them. A deleted one keeps
+    only its id, so an old retry cannot bring it back."""
+
+    __tablename__ = "customer_pages"
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_ref", name="customer_pages_client_ref_key"),
+        CheckConstraint("kind IN ('LIST', 'NOTE')", name="customer_pages_kind_check"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    client_ref: Mapped[str] = mapped_column(String(40))
+    kind: Mapped[str] = mapped_column(String(10))
+    title: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    items: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")  # [{ref, text, qty, done}]
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    save_ref: Mapped[str] = mapped_column(String(40))  # the last save (a retry of it counts once)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

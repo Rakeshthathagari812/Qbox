@@ -271,7 +271,8 @@ class EntryTile extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  credit ? Icons.north_east_rounded : Icons.south_west_rounded,
+                  // Out of the reader's hands: the shop gave udhaar, or the customer paid.
+                  credit != forCustomer ? Icons.north_east_rounded : Icons.south_west_rounded,
                   color: color,
                   size: 22,
                 ),
