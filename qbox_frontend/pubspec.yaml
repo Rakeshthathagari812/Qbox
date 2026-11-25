@@ -75,6 +75,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/legal/texts.json
     - assets/images/hero_shop.png
     - assets/images/quadrant_logo.png
     - assets/images/role_business.png

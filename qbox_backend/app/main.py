@@ -21,6 +21,7 @@ from app.customer.router import router as customer_router
 from app.database import engine
 from app.errors import register_error_handlers
 from app.language.router import router as language_router
+from app.legal.router import router as legal_router
 from app.notices.router import router as notices_router
 from app.payments.router import router as payments_router
 from app.stock.router import router as stock_router
@@ -71,6 +72,7 @@ app.include_router(suppliers_router)
 app.include_router(supply_router)
 app.include_router(customer_router)
 app.include_router(notices_router)
+app.include_router(legal_router)
 
 
 @app.get("/health", tags=["Health"], summary="Is the server (and database) up?")

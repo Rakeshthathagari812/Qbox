@@ -219,6 +219,8 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Written into every access token; raising it logs out every phone (done on PIN reset).
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # They deleted their account: only the row is left, so other people's records stay right.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

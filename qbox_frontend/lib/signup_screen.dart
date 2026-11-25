@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'widgets/qbox_brand.dart';
 
 import 'onboarding_draft.dart';
+import 'profile/legal_screen.dart';
 import 'registration_screen.dart';
 import 'widgets/signup_route.dart';
 import 'widgets/qbox_wave.dart';
@@ -130,7 +131,10 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                 RiseIn(
                   index: 4,
-                  child: _ContinueButton(
+                  child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                  _ContinueButton(
                   enabled: hasRole,
                   onPressed: hasRole
                       ? () {
@@ -143,6 +147,10 @@ class _SignupScreenState extends State<SignupScreen> {
                           );
                         }
                       : null,
+                ),
+                  const SizedBox(height: 4),
+                  const LegalAgreement(),
+                  ],
                 ),
                 ),
               ],

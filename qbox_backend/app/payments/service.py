@@ -245,6 +245,7 @@ def pay_udhaar(db: Session, user: User, book_id: int, body: UdhaarPayIn, gateway
         return UdhaarPayOut(payment=out(db, existing), key_id=existing.gateway_key_id or "",
                             order_id=existing.gateway_ref or "", shop_name=shop, contact=user.mobile)
 
+    require_open(db, customer.shop_user_id)
     due = udhaar.balance(db, customer.id)
     if due <= 0:
         raise ApiError(409, "NOTHING_DUE", f"Nothing is due at {shop}")
@@ -528,6 +529,11 @@ def out(db: Session, payment: Payment, names: dict[int, str] | None = None) -> P
         claimed_at=payment.claimed_at,
         created_at=payment.created_at or datetime.now(UTC),
     )
+
+
+def require_open(db: Session, shop_user_id: int) -> None:
+    if udhaar.is_closed(db, shop_user_id):
+        raise ApiError(409, "SHOP_CLOSED", f"{shop_name(db, shop_user_id)} is not on QBOX any more. Pay them directly")
 
 
 def shop_name(db: Session, shop_user_id: int) -> str:

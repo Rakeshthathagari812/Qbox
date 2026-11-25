@@ -7,8 +7,8 @@ from app.auth.schemas import AddRoleIn, ChangePinIn, ShopIn, SupplierIn
 from app.database import get_db
 from app.deps import current_user
 from app.models import Role, User
-from app.users import photos, profile
-from app.users.schemas import CustomerEditIn, MeOut, PhotoIn, PhotoOut, TokenOut
+from app.users import goodbye, photos, profile
+from app.users.schemas import CustomerEditIn, DeleteAccountIn, DeleteCheckOut, MeOut, PhotoIn, PhotoOut, TokenOut
 from app.users.service import to_me
 
 router = APIRouter(prefix="/api", tags=["Users"])
@@ -70,3 +70,13 @@ def change_pin(body: ChangePinIn, user: User = Depends(current_user), db: Sessio
 @router.post("/me/logout-all", status_code=status.HTTP_204_NO_CONTENT, summary="Log out from all phones")
 def logout_all(user: User = Depends(current_user), db: Session = Depends(get_db)):
     profile.logout_all(db, user)
+
+
+@router.get("/me/delete-check", response_model=DeleteCheckOut, summary="What is still open, before deleting my account")
+def delete_check(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return goodbye.check(db, user)
+
+
+@router.post("/me/delete", status_code=status.HTTP_204_NO_CONTENT, summary="Delete my account (needs my PIN; cannot be undone)")
+def delete_account(body: DeleteAccountIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    goodbye.delete_account(db, user, body.pin)

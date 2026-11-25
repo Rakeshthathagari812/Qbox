@@ -417,9 +417,9 @@ def _shop(db: Session, link: SupplyLink, profiles: dict[int, ShopProfile]) -> di
     return {
         "link_id": link.id,
         "shop_name": p.shop_name if p else "Shop",
-        "shop_category": (p.shop_category_detail or p.shop_category) if p else None,
-        "shop_address": p.address if p else None,
-        "shop_phone": p.contact_number if p else None,
+        "shop_category": (p.shop_category_detail or p.shop_category or None) if p else None,
+        "shop_address": (p.address or None) if p else None,
+        "shop_phone": (p.contact_number or None) if p else None,
         "shop_photo": photos.ref_of(db, link.shop_user_id, Role.BUSINESS),
     }
 
@@ -532,7 +532,7 @@ def _orders_out(db: Session, rows, found: dict[int, SupplyLink],
                 id=order.id,
                 link_id=link.id,
                 shop_name=p.shop_name if p else "Shop",
-                shop_phone=p.contact_number if p else None,
+                shop_phone=(p.contact_number or None) if p else None,
                 status=OrderStatus(order.status),
                 note=order.note,
                 lines=[_line_out(x, have if order.status in TO_ANSWER else {}) for x in lines[order.id]],

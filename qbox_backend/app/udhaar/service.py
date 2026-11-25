@@ -307,6 +307,12 @@ def customer_book(db: Session, user: User, book_id: int) -> UdhaarCustomer:
     return _my_customer(db, user, book_id)
 
 
+def is_closed(db: Session, shop_user_id: int) -> bool:
+    """The shop deleted its account."""
+    shop = db.get(User, shop_user_id)
+    return shop is None or shop.deleted_at is not None
+
+
 def balance(db: Session, customer_id: int) -> int:
     """What the customer owes now (paise; negative = advance)."""
     return _stats(db, [customer_id]).get(customer_id, _Stats()).balance
@@ -428,9 +434,10 @@ def _book_out(customer: UdhaarCustomer, shop: ShopProfile | None, stats: _Stats)
     return MyBookOut(
         book_id=customer.id,
         shop_name=shop.shop_name if shop else "Shop",
-        shop_phone=shop.contact_number if shop else None,
-        shop_category=(shop.shop_category_detail or shop.shop_category) if shop else None,
-        shop_address=shop.address if shop else None,
+        closed=is_closed(object_session(customer), customer.shop_user_id),
+        shop_phone=(shop.contact_number or None) if shop else None,
+        shop_category=(shop.shop_category_detail or shop.shop_category or None) if shop else None,
+        shop_address=(shop.address or None) if shop else None,
         shop_photo=photos.ref_of(object_session(shop), shop.user_id, Role.BUSINESS) if shop else None,
         balance_paise=stats.balance,
         last_entry_at=stats.last_entry_at,

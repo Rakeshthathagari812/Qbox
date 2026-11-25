@@ -258,6 +258,7 @@ class _ShopCard extends StatelessWidget {
                             style: udText(15, weight: FontWeight.w700),
                           ),
                           if (category.isNotEmpty) Text(category, style: udText(12, color: udBody)),
+                          if (book.closed) const UdBadge('Left QBOX', color: udBody),
                           if (book.lastEntryAt != null)
                             Text('Last: ${whenLabel(book.lastEntryAt!, now)}', style: udText(12, color: udBody)),
                           if (book.dispute == Dispute.reported)
@@ -494,7 +495,13 @@ class _MyBookScreenState extends State<MyBookScreen> {
                         ],
                       ),
                     ),
-                    if (_book.balancePaise > 0)
+                    if (_book.closed)
+                      UdBanner(
+                        key: const Key('mybook-closed'),
+                        icon: Icons.storefront_outlined,
+                        text: '${_book.shopName} left QBOX. You can still see your history here. Settle with them directly.',
+                      ),
+                    if (_book.balancePaise > 0 && !_book.closed)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: SizedBox(
@@ -549,7 +556,7 @@ class _MyBookScreenState extends State<MyBookScreen> {
                           forCustomer: true,
                         ),
                       const SizedBox(height: 16),
-                      if (_book.dispute == Dispute.none)
+                      if (_book.dispute == Dispute.none && !_book.closed)
                         Center(
                         child: TextButton.icon(
                           key: const Key('mybook-not-me'),

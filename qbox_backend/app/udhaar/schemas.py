@@ -131,6 +131,7 @@ class CustomerDetailOut(CamelModel):
 
 
 class MyBookOut(CamelModel):
+    closed: bool = False  # the shop left QBOX: only to look at
     """One shop's udhaar book, as the customer sees it."""
 
     book_id: int

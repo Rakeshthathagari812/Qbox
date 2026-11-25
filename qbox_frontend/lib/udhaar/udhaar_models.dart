@@ -335,10 +335,14 @@ class MyBook {
     this.lastEntryAt,
     this.dispute = Dispute.none,
     this.verifiedAt,
+    this.closed = false,
   });
 
   final int bookId;
   final String shopName;
+
+  /// The shop left QBOX: only to look at.
+  final bool closed;
   final String? shopPhone;
   final String? shopCategory;
   final String? shopAddress;
@@ -368,11 +372,13 @@ class MyBook {
       lastEntryAt: _time(json['lastEntryAt']),
       dispute: Dispute.fromCode(json['dispute']),
       verifiedAt: _time(json['verifiedAt']),
+      closed: json['closed'] == true,
     );
   }
 
   Map<String, dynamic> toJson() => {
     'bookId': bookId,
+    'closed': closed,
     'shopName': shopName,
     'shopPhone': shopPhone,
     'shopCategory': shopCategory,

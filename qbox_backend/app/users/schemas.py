@@ -80,5 +80,23 @@ class PhotoOut(CamelModel):
     jpeg: str
 
 
+class DeleteCheckOut(CamelModel):
+    """Before deleting the account: what is still open."""
+
+    you_owe_paise: int
+    owed_to_you_paise: int
+    payments_open: bool  # must be finished first
+
+
+def _pin(value: str) -> str:
+    if not re.fullmatch(r"[0-9]{4}", value):
+        raise ValueError("Enter a 4-digit PIN")
+    return value
+
+
+class DeleteAccountIn(CamelModel):
+    pin: Annotated[str, AfterValidator(_pin)]
+
+
 class TokenOut(CamelModel):
     access_token: str

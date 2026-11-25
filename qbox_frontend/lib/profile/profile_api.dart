@@ -23,6 +23,35 @@ abstract class ProfileApi {
   Future<String> changePin(String oldPin, String newPin);
 
   Future<void> logOutAll();
+
+  /// What is still open, before deleting the account.
+  Future<DeleteCheck> deleteCheck();
+
+  /// Cannot be undone.
+  Future<void> deleteAccount(String pin);
+
+  /// How to reach QBOX. No login needed.
+  Future<SupportContact> support();
+}
+
+class DeleteCheck {
+  const DeleteCheck({this.youOwePaise = 0, this.owedToYouPaise = 0, this.paymentsOpen = false});
+
+  final int youOwePaise;
+  final int owedToYouPaise;
+
+  /// A payment to this shop is not finished: it must be answered first.
+  final bool paymentsOpen;
+}
+
+class SupportContact {
+  const SupportContact({this.name, this.phone, this.email});
+
+  final String? name;
+  final String? phone;
+  final String? email;
+
+  bool get isEmpty => name == null && phone == null && email == null;
 }
 
 class HttpProfileApi implements ProfileApi {
@@ -75,6 +104,31 @@ class HttpProfileApi implements ProfileApi {
 
   @override
   Future<void> logOutAll() => _api.post('/api/me/logout-all', {});
+
+  @override
+  Future<DeleteCheck> deleteCheck() async {
+    final json = await _api.get('/api/me/delete-check');
+    if (json is! Map<String, dynamic>) throw _bad;
+    return DeleteCheck(
+      youOwePaise: json['youOwePaise'] as int? ?? 0,
+      owedToYouPaise: json['owedToYouPaise'] as int? ?? 0,
+      paymentsOpen: json['paymentsOpen'] == true,
+    );
+  }
+
+  @override
+  Future<void> deleteAccount(String pin) => _api.post('/api/me/delete', {'pin': pin});
+
+  @override
+  Future<SupportContact> support() async {
+    final json = await _api.get('/api/info');
+    if (json is! Map<String, dynamic>) throw _bad;
+    return SupportContact(
+      name: json['supportName'] as String?,
+      phone: json['supportPhone'] as String?,
+      email: json['supportEmail'] as String?,
+    );
+  }
 
   static QboxUser _user(Object? json) => json is Map<String, dynamic> ? QboxUser.fromJson(json) : throw _bad;
 }

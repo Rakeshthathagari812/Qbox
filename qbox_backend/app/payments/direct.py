@@ -62,7 +62,7 @@ def shops_to_pay(db: Session, user: User, gateways: Gateways) -> PayShopsOut:
     shops, seen = [], {user.id}
     for book in udhaar.my_books(db, user):
         owner = udhaar.customer_book(db, user, book.book_id).shop_user_id
-        if owner not in seen:
+        if owner not in seen and not book.closed:
             seen.add(owner)
             shops.append(_shop_out(db, owner, f"book:{book.book_id}", gateways, book.book_id, book.balance_paise))
 
@@ -74,7 +74,8 @@ def shops_to_pay(db: Session, user: User, gateways: Gateways) -> PayShopsOut:
     ).all()
     most = len(shops) + RECENT_SHOPS
     for payment in recent:
-        if payment.shop_user_id not in seen and len(shops) < most:
+        if (payment.shop_user_id not in seen and len(shops) < most
+                and not udhaar.is_closed(db, payment.shop_user_id)):
             seen.add(payment.shop_user_id)
             shops.append(_shop_out(db, payment.shop_user_id, f"paid:{payment.id}", gateways))
 
@@ -244,6 +245,7 @@ def _resolve(db: Session, user: User, ref: str) -> int:
         owner = payment.shop_user_id
     if owner == user.id:
         raise _own_shop()
+    service.require_open(db, owner)
     return owner
 
 

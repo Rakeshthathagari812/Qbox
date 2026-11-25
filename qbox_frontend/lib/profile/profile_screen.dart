@@ -11,7 +11,9 @@ import '../udhaar/udhaar_widgets.dart';
 import 'add_role_screen.dart';
 import 'change_pin_screen.dart';
 import 'crop_screen.dart';
+import 'delete_account_screen.dart';
 import 'edit_profile_screen.dart';
+import 'legal_screen.dart';
 import 'log_out.dart';
 import 'notices.dart';
 import 'notices_screen.dart';
@@ -245,6 +247,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ]),
                     const SizedBox(height: 20),
+                    Text('Help', style: udText(16, weight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    _card([
+                      _row(
+                        'profile-help',
+                        Icons.help_outline_rounded,
+                        'Help',
+                        onTap: () => openLegal(context, LegalPage.help),
+                      ),
+                      _row(
+                        'profile-privacy',
+                        Icons.privacy_tip_outlined,
+                        'Privacy Policy',
+                        onTap: () => openLegal(context, LegalPage.privacy),
+                      ),
+                      _row(
+                        'profile-terms',
+                        Icons.description_outlined,
+                        'Terms of Use',
+                        onTap: () => openLegal(context, LegalPage.terms),
+                      ),
+                    ]),
+                    const SizedBox(height: 20),
                     Text('Account', style: udText(16, weight: FontWeight.w700)),
                     const SizedBox(height: 8),
                     _card([
@@ -275,6 +300,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         'Log out',
                         color: udDue,
                         onTap: _busy ? null : () => logOut(context),
+                      ),
+                      _row(
+                        'profile-delete',
+                        Icons.delete_forever_outlined,
+                        'Delete my account',
+                        color: udDue,
+                        onTap: _busy
+                            ? null
+                            : () => Navigator.of(
+                                context,
+                              ).push(MaterialPageRoute<void>(builder: (_) => const DeleteAccountScreen())),
                       ),
                     ]),
                   ],

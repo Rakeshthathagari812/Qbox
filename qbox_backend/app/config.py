@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     def razorpay_test_account_on(self) -> bool:
         return bool(self.razorpay_key_id and self.razorpay_key_secret) and not self.is_production
 
+    # Shown in Help and on the privacy page. Set them before going live (the privacy
+    # policy needs a way to complain).
+    support_name: str = ""
+    support_phone: str = ""
+    support_email: str = ""
+
     # Wrong-PIN lock: every 5th wrong PIN in a row locks the account.
     # The first lock is short; later ones are long, so guessing a 4-digit PIN is not practical.
     login_max_failed_attempts: int = 5

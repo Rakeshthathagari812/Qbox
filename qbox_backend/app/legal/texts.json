@@ -1,0 +1,250 @@
+{
+ "privacy": {
+  "title": "Privacy Policy",
+  "updated": "25 November 2026",
+  "sections": [
+   [
+    "Who we are",
+    [
+     "QBOX is an app for shops, customers and suppliers in India. It is run by Quadrant IT Services (\"we\")."
+    ]
+   ],
+   [
+    "What you give us",
+    [
+     "Your mobile number, and the roles you choose.",
+     "Shop and supplier: name, type of business, address and contact number.",
+     "Customer: name; email and address only if you add them.",
+     "A profile photo, only if you add one.",
+     "What you write in QBOX: udhaar, payments, stock, suppliers, orders, calendar, notes, lists and expenses.",
+     "Your PIN is stored only in a scrambled form that cannot be read back, even by us."
+    ]
+   ],
+   [
+    "What the app uses on your phone, and only when you ask",
+    [
+     "Microphone: to write by voice. For Indian languages the recording goes to the QBOX server, is turned into words, and is not kept. For English, or without internet, your phone's own speech service is used.",
+     "Camera and gallery: to scan a QR, or to choose your photo.",
+     "Contacts: only the one person you pick. Your contact list is not read or uploaded.",
+     "Notifications: for reminders you set.",
+     "QBOX does not use your location, and shows no advertisements."
+    ]
+   ],
+   [
+    "Who can see what",
+    [
+     "A shop and its customer see the same udhaar lines between them. A shop cannot see a customer's other shops.",
+     "A shop and a connected supplier see what they shared since they connected: orders, goods, payments and prices. Nothing from before.",
+     "A shop's customers can see its name, photo, category, address and contact number.",
+     "Your calendar, notes, lists, expenses, stock counts and reports are private to you.",
+     "We do not sell your details to anyone."
+    ]
+   ],
+   [
+    "Payments",
+    [
+     "Money goes straight to the shop's or supplier's own account. QBOX never holds it.",
+     "Online payments are done by Razorpay under its own privacy policy. QBOX does not see or keep your card number, UPI PIN or bank password.",
+     "UPI payments open your own UPI app. QBOX cannot see that money; the person who gets it confirms it.",
+     "A shop's Razorpay secret key is kept encrypted."
+    ]
+   ],
+   [
+    "Companies that help us",
+    [
+     "Razorpay (online payments), an SMS company (codes), and the company that hosts our server. They get only what their work needs."
+    ]
+   ],
+   [
+    "How long we keep it",
+    [
+     "As long as you have an account.",
+     "Codes sent by SMS stop working after a few minutes.",
+     "We may keep records longer when a law asks for it."
+    ]
+   ],
+   [
+    "Deleting your account",
+    [
+     "Profile, then Delete my account. Your details, photos, PIN, calendar, notes, expenses, stock, products and payment settings are erased at once.",
+     "Records that also belong to someone else stay, without your private details: a shop's udhaar lines, payments, and what a shop and a supplier shared. A shop keeps the customer name and number it wrote in its own book.",
+     "This cannot be undone."
+    ]
+   ],
+   [
+    "Your rights",
+    [
+     "You can see and correct your details in Profile, and delete your account there.",
+     "You can report \"This is not my number\" in My Udhaar.",
+     "For anything else, or a complaint, use the contact in Help. You may also complain to the Data Protection Board of India."
+    ]
+   ],
+   [
+    "Safety",
+    [
+     "Data is sent over an encrypted connection, and the copy on your phone is encrypted. Never tell anyone your PIN or code. QBOX will never ask for them."
+    ]
+   ],
+   [
+    "Children",
+    [
+     "QBOX is for people aged 18 and over."
+    ]
+   ],
+   [
+    "Changes",
+    [
+     "If this policy changes, the new one is shown here with its date. For a big change we tell you in the app."
+    ]
+   ]
+  ]
+ },
+ "terms": {
+  "title": "Terms of Use",
+  "updated": "25 November 2026",
+  "sections": [
+   [
+    "Using QBOX",
+    [
+     "By using QBOX you agree to these terms. QBOX is run by Quadrant IT Services.",
+     "You must be 18 or over, give true details, and use your own mobile number.",
+     "Keep your PIN secret. What is done with your PIN counts as done by you, until you tell us it is stolen."
+    ]
+   ],
+   [
+    "What QBOX is",
+    [
+     "A tool to write down and share records: udhaar, payments, stock, orders and more.",
+     "QBOX is not a bank, a lender, a payment company or a wallet. It does not give credit and does not hold money.",
+     "Udhaar, orders and sales are between the shop, the customer and the supplier. QBOX is not a party to them."
+    ]
+   ],
+   [
+    "Your records",
+    [
+     "Write only what is true. Add a customer or supplier only with their agreement; that is what the code is for.",
+     "What both sides confirmed cannot be deleted. Correct a mistake with a new entry.",
+     "QBOX does not decide who is right in a disagreement. Please settle it with the other person."
+    ]
+   ],
+   [
+    "Payments",
+    [
+     "Check the name and amount before you pay. Money sent to the wrong person must be asked back from them, your bank or your UPI app.",
+     "Online payments follow Razorpay's terms. Refunds are given by the shop or supplier you paid.",
+     "In test mode, payments are pretend money."
+    ]
+   ],
+   [
+    "Voice, translation and calculations",
+    [
+     "They can make mistakes. Check the words, numbers and amounts before you save or rely on them."
+    ]
+   ],
+   [
+    "Not allowed",
+    [
+     "Cheating anyone, false records, someone else's number, harassing people about dues, anything against the law, or trying to break or copy QBOX.",
+     "We may stop an account that does this."
+    ]
+   ],
+   [
+    "Problems with the app",
+    [
+     "We work to keep QBOX running and your records safe, but it may stop sometimes, and we cannot promise it is free of errors. Keep your own copy of important records.",
+     "As far as the law allows, we are not responsible for losses from disagreements between users, from wrong entries, or from the app not being available."
+    ]
+   ],
+   [
+    "Leaving",
+    [
+     "You can delete your account at any time in Profile. Settle your dues first: deleting the account does not cancel what you owe or are owed."
+    ]
+   ],
+   [
+    "Law",
+    [
+     "These terms follow the laws of India."
+    ]
+   ]
+  ]
+ },
+ "help": {
+  "title": "Help",
+  "updated": "25 November 2026",
+  "sections": [
+   [
+    "I forgot my PIN",
+    [
+     "On the login page tap Forgot PIN. A code comes to your mobile, then choose a new PIN. Other phones are logged out."
+    ]
+   ],
+   [
+    "I changed my phone",
+    [
+     "Install QBOX and log in with your mobile number and PIN. Your records come back. On the old phone, use Log out from all phones in Profile."
+    ]
+   ],
+   [
+    "It says offline",
+    [
+     "Check your internet, then pull down to refresh. What you wrote offline is kept on the phone and sent by itself when internet is back. Do not log out before that."
+    ]
+   ],
+   [
+    "Shop: add a customer to udhaar",
+    [
+     "Udhaar, Add customer. A code goes to their mobile. Type the code they tell you. They see every line in their own QBOX."
+    ]
+   ],
+   [
+    "Customer: this is not my udhaar",
+    [
+     "Open My Udhaar, then the shop, then This is not my number. The shop is asked to check. If one line is wrong, talk to the shop: it can delete it with a reason."
+    ]
+   ],
+   [
+    "I paid, but it is not shown",
+    [
+     "A UPI payment counts after the shop or supplier confirms it. An online payment can take a few minutes; do not pay again. It shows in Transaction History or Payments."
+    ]
+   ],
+   [
+    "Shop: connect with a supplier",
+    [
+     "Supplier, Add supplier, Send code and connect. They read out the code. Then you see their products, order, and pay."
+    ]
+   ],
+   [
+    "Supplier: add products",
+    [
+     "Products, Ready list or Add product. Tap the box picture to count your stock. Shops see only available or not."
+    ]
+   ],
+   [
+    "Not right, or not received",
+    [
+     "Tap Not right or Not received and write why. The other person sees it and can correct it."
+    ]
+   ],
+   [
+    "Voice does not hear me",
+    [
+     "Allow the microphone, choose your language in Profile, Voice language, and speak near the phone. Indian languages need internet."
+    ]
+   ],
+   [
+    "Add another role",
+    [
+     "Profile, Add a role. You need your PIN. Switch between roles with Switch role."
+    ]
+   ],
+   [
+    "Delete my account",
+    [
+     "Profile, Delete my account. Settle your dues first. It cannot be undone."
+    ]
+   ]
+  ]
+ }
+}

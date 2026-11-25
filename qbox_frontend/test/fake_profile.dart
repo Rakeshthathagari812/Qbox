@@ -105,6 +105,27 @@ class FakeProfileApi implements ProfileApi {
 
   @override
   Future<void> logOutAll() async => _check('log out all');
+
+  DeleteCheck toDelete = const DeleteCheck();
+  SupportContact contact = const SupportContact();
+
+  @override
+  Future<DeleteCheck> deleteCheck() async {
+    _check('delete check');
+    return toDelete;
+  }
+
+  @override
+  Future<void> deleteAccount(String given) async {
+    _check('delete');
+    if (given != pin) throw const ApiException('WRONG_PIN', 'The PIN is not right', status: 400);
+  }
+
+  @override
+  Future<SupportContact> support() async {
+    _check('support');
+    return contact;
+  }
 }
 
 /// Pretend camera and gallery.

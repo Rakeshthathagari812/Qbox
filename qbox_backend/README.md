@@ -61,6 +61,8 @@ this PC blocks the small `.exe` launchers (uvicorn.exe, alembic.exe) inside `.ve
 | GET / POST / PUT / DELETE | `/api/supply/products` | Yes, supplier (own products) |
 | GET / PUT / POST | `/api/supply/products/{id}/stock`, `/moves` | Yes, supplier (own stock count) |
 | GET | `/api/supply/report?start&end` | Yes, supplier |
+| GET / POST | `/api/me/delete-check`, `/api/me/delete` | Yes (deletes my account; needs the PIN) |
+| GET | `/api/info`, `/privacy`, `/terms`, `/delete-account` | No (help contact, and pages for the app stores) |
 | GET / PUT | `/api/supply/payments`, `/upi` | Yes, supplier (what shops paid; own UPI ID) |
 | GET | `/api/supply/shops`, `/shops/{id}`, `/orders` | Yes, supplier (own connected shops) |
 | POST | `/api/supply/shops/{id}/accept`, `/decline`, `/end` | Yes, supplier |
