@@ -15,10 +15,15 @@ from app.suppliers.schemas import (
     OrderOut,
     ReceiveIn,
     SupplierChangeIn,
+    SupplierCodeIn,
+    SupplierCodeOut,
     SupplierDetailOut,
     SupplierIn,
     SupplierOut,
+    SupplierPayOut,
+    SupplierProductOut,
     SuppliersOut,
+    SupplierVerifyIn,
 )
 
 router = APIRouter(prefix="/api/suppliers", tags=["Suppliers"])
@@ -51,6 +56,41 @@ def archive_supplier(supplier_id: int, user: User = Depends(current_user), db: S
     return service.archive_supplier(db, user, supplier_id)
 
 
+@router.post("/otp", response_model=SupplierCodeOut,
+             summary="Adding a supplier, step 1: a code goes to their phone (step 2: add with the code)")
+def send_new_code(body: SupplierCodeIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.send_new_code(db, user, body)
+
+
+@router.post("/{supplier_id}/otp", response_model=SupplierCodeOut,
+             summary="Connect with a supplier in the list: a code goes to their phone, with what the shop owes")
+def send_code(supplier_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.send_code(db, user, supplier_id)
+
+
+@router.post("/{supplier_id}/verify", response_model=SupplierOut, summary="The code they read out: connected")
+def verify(supplier_id: int, body: SupplierVerifyIn, user: User = Depends(current_user),
+           db: Session = Depends(get_db)):
+    return service.verify(db, user, supplier_id, body.otp)
+
+
+@router.get("/{supplier_id}/products", response_model=list[SupplierProductOut],
+            summary="What a connected supplier sells")
+def supplier_products(supplier_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.supplier_products(db, user, supplier_id)
+
+
+@router.get("/{supplier_id}/pay", response_model=SupplierPayOut, summary="A connected supplier's own UPI ID")
+def pay_info(supplier_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.pay_info(db, user, supplier_id)
+
+
+@router.post("/{supplier_id}/disconnect", response_model=SupplierOut,
+             summary="Disconnect, or take the question back")
+def disconnect(supplier_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.disconnect(db, user, supplier_id)
+
+
 @router.post("/{supplier_id}/entries", response_model=EntryOut, status_code=status.HTTP_201_CREATED,
              summary="Purchase (items go into stock) or payment")
 def add_entry(supplier_id: int, body: EntryIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -61,6 +101,17 @@ def add_entry(supplier_id: int, body: EntryIn, user: User = Depends(current_user
              summary="Delete an entry (kept with the reason; a purchase's stock is taken back out)")
 def delete_entry(entry_id: int, body: DeleteIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     return service.delete_entry(db, user, entry_id, body.reason)
+
+
+@router.post("/entries/{entry_id}/confirm", response_model=EntryOut,
+             summary="What a connected supplier wrote is right (goods come into stock)")
+def confirm_entry(entry_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.confirm_entry(db, user, entry_id)
+
+
+@router.post("/entries/{entry_id}/dispute", response_model=EntryOut, summary="What a connected supplier wrote is not right")
+def dispute_entry(entry_id: int, body: DeleteIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return service.dispute_entry(db, user, entry_id, body.reason)
 
 
 @router.post("/{supplier_id}/orders", response_model=OrderOut, status_code=status.HTTP_201_CREATED,

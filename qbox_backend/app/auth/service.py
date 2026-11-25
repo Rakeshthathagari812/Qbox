@@ -20,6 +20,7 @@ from app.security import (
     hash_secret,
     read_verification,
 )
+from app.supply import links
 from app.users.service import to_me
 
 # Must match otherOption in the app's registration_options.dart.
@@ -80,6 +81,8 @@ def register(db: Session, body: RegisterIn) -> AuthOut:
         raise ApiError(409, "MOBILE_REGISTERED", ALREADY_REGISTERED) from None
 
     give_roles(user, body)
+    if Role.SUPPLIER in body.roles:
+        links.welcome(db, user)
     db.commit()  # the account, its profiles and the used-up token are saved together, or not at all
     return AuthOut(access_token=create_access_token(user.id, user.token_version), user=to_me(user))
 

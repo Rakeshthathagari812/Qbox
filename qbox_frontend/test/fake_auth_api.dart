@@ -24,6 +24,7 @@ import 'package:qbox_app/stock/stock_repository.dart';
 import 'package:qbox_app/stock/stock_store.dart';
 import 'package:qbox_app/suppliers/supplier_api.dart';
 import 'package:qbox_app/suppliers/supplier_repository.dart';
+import 'package:qbox_app/supply/supply_repository.dart';
 import 'package:qbox_app/translator/languages.dart';
 import 'package:qbox_app/translator/translation_service.dart';
 import 'package:qbox_app/udhaar/udhaar_api.dart';
@@ -37,6 +38,7 @@ import 'fake_payments.dart';
 import 'fake_profile.dart';
 import 'fake_stock.dart';
 import 'fake_suppliers.dart';
+import 'fake_supply.dart';
 import 'fake_transactions.dart';
 
 export 'fake_notices.dart';
@@ -45,6 +47,7 @@ export 'fake_payments.dart';
 export 'fake_profile.dart';
 export 'fake_stock.dart';
 export 'fake_suppliers.dart';
+export 'fake_supply.dart';
 export 'fake_transactions.dart';
 
 /// A pretend backend for widget tests. It follows the same rules as the
@@ -286,6 +289,8 @@ AppServices fakeServices({
   PhotoPicker? photoPicker,
   PhotoStore? photoStore,
   NoticesApi? notices,
+  SupplyApi? supply,
+  SupplyStore? supplyStore,
 }) {
   final profileApi = profile ?? FakeProfileApi();
   return AppServices(
@@ -317,6 +322,7 @@ AppServices fakeServices({
     photos: PhotoRepository(profileApi, photoStore ?? MemoryPhotoStore()),
     photoPicker: photoPicker ?? FakePhotoPicker(),
     notices: notices ?? FakeNoticesApi(),
+    supply: SupplyRepository(supply ?? FakeSupplyApi(), supplyStore ?? MemorySupplyStore()),
   );
 }
 

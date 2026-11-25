@@ -20,12 +20,14 @@ class NoticeType(str, enum.Enum):
     CUSTOMER = "CUSTOMER"
     STOCK = "STOCK"
     SUPPLIER = "SUPPLIER"
+    ORDER = "ORDER"
+    LEDGER = "LEDGER"
 
 
 TYPES = {
     Role.CUSTOMER: [NoticeType.UDHAAR, NoticeType.PAYMENT, NoticeType.BUDGET],
     Role.BUSINESS: [NoticeType.PAYMENT, NoticeType.CUSTOMER, NoticeType.STOCK, NoticeType.SUPPLIER],
-    Role.SUPPLIER: [],
+    Role.SUPPLIER: [NoticeType.ORDER, NoticeType.LEDGER, NoticeType.STOCK],
 }
 
 
@@ -47,6 +49,30 @@ class NoticeKind(str, enum.Enum):
     NOT_ME = "NOT_ME"  # "this is not my number": the shop must check
     LOW_STOCK = "LOW_STOCK"  # note = what is left, "2000 KG" (thousandths and the unit)
     SUPPLIER_DUE = "SUPPLIER_DUE"  # today or earlier; amount = owed
+    # Shop, about a connected supplier (name).
+    CONNECTED = "CONNECTED"
+    NOT_CONNECTED = "NOT_CONNECTED"  # they said no (note = why)
+    SUPPLIER_LEFT = "SUPPLIER_LEFT"
+    ORDER_ACCEPTED = "ORDER_ACCEPTED"  # amount = their bill
+    ORDER_REJECTED = "ORDER_REJECTED"
+    ORDER_SENT = "ORDER_SENT"  # on the way
+    MONEY_CONFIRMED = "MONEY_CONFIRMED"  # they got the payment
+    NOT_RIGHT = "NOT_RIGHT"  # they say an entry is not right (note = why)
+    THEY_GAVE = "THEY_GAVE"  # they wrote goods: the shop must check
+    THEY_GOT = "THEY_GOT"  # they wrote a payment they got
+    THEY_DELETED = "THEY_DELETED"  # ... and deleted one (note = why)
+    # Supplier, about a connected shop (name).
+    WANTS_TO_CONNECT = "WANTS_TO_CONNECT"
+    SHOP_LEFT = "SHOP_LEFT"
+    NEW_ORDER = "NEW_ORDER"
+    ORDER_CANCELLED = "ORDER_CANCELLED"
+    ORDER_RECEIVED = "ORDER_RECEIVED"
+    CONFIRM_PURCHASE = "CONFIRM_PURCHASE"
+    CONFIRM_PAYMENT = "CONFIRM_PAYMENT"
+    ENTRY_DELETED = "ENTRY_DELETED"
+    SHOP_AGREED = "SHOP_AGREED"  # confirmed what the supplier wrote
+    SHOP_NOT_RIGHT = "SHOP_NOT_RIGHT"  # ... says it is not right (note = why)
+    PRODUCT_LOW = "PRODUCT_LOW"  # their own count; note = what is left
 
 
 class NoticeOut(CamelModel):

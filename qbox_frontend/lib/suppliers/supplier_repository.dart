@@ -34,6 +34,10 @@ abstract class SupplierStore {
   Future<void> saveSupplier(SupplierDetail detail);
   Future<List<PendingSupplierEntry>> loadPending();
   Future<void> savePending(List<PendingSupplierEntry> pending);
+
+  /// UPI payments sent to a UPI app: "did it go through?" not answered yet.
+  Future<List<PendingSupplierEntry>> loadAsking();
+  Future<void> saveAsking(List<PendingSupplierEntry> asking);
   Future<void> clear();
 }
 
@@ -46,6 +50,7 @@ class SecureSupplierStore implements SupplierStore {
   static const _prefix = 'qbox_suppliers_';
   static const _bookKey = '${_prefix}book';
   static const _pendingKey = '${_prefix}pending';
+  static const _askingKey = '${_prefix}asking';
   static String _supplierKey(int id) => '${_prefix}supplier_$id';
 
   @override
@@ -61,16 +66,24 @@ class SecureSupplierStore implements SupplierStore {
   Future<void> saveSupplier(SupplierDetail detail) => _write(_supplierKey(detail.supplier.id), detail.toJson());
 
   @override
-  Future<List<PendingSupplierEntry>> loadPending() async {
-    final data = await _read(_pendingKey);
-    return data is List
-        ? data.map(PendingSupplierEntry.fromJson).whereType<PendingSupplierEntry>().toList()
-        : <PendingSupplierEntry>[];
-  }
+  Future<List<PendingSupplierEntry>> loadPending() => _list(_pendingKey);
 
   @override
   Future<void> savePending(List<PendingSupplierEntry> pending) =>
       _write(_pendingKey, [for (final p in pending) p.toJson()]);
+
+  @override
+  Future<List<PendingSupplierEntry>> loadAsking() => _list(_askingKey);
+
+  @override
+  Future<void> saveAsking(List<PendingSupplierEntry> asking) => _write(_askingKey, [for (final p in asking) p.toJson()]);
+
+  Future<List<PendingSupplierEntry>> _list(String key) async {
+    final data = await _read(key);
+    return data is List
+        ? data.map(PendingSupplierEntry.fromJson).whereType<PendingSupplierEntry>().toList()
+        : <PendingSupplierEntry>[];
+  }
 
   @override
   Future<void> clear() async {
@@ -99,6 +112,7 @@ class MemorySupplierStore implements SupplierStore {
   SupplierBook? book;
   final Map<int, SupplierDetail> details = {};
   List<PendingSupplierEntry> pending = [];
+  List<PendingSupplierEntry> asking = [];
 
   @override
   Future<SupplierBook?> loadBook() async => book;
@@ -113,10 +127,15 @@ class MemorySupplierStore implements SupplierStore {
   @override
   Future<void> savePending(List<PendingSupplierEntry> list) async => pending = List.of(list);
   @override
+  Future<List<PendingSupplierEntry>> loadAsking() async => List.of(asking);
+  @override
+  Future<void> saveAsking(List<PendingSupplierEntry> list) async => asking = List.of(list);
+  @override
   Future<void> clear() async {
     book = null;
     details.clear();
     pending = [];
+    asking = [];
   }
 }
 
@@ -174,6 +193,29 @@ class SupplierRepository {
     }
   }
 
+  /// Remembers a payment before the UPI app opens, so it is asked about even if
+  /// the phone closes QBOX meanwhile.
+  Future<void> startAsking(int supplierId, SupplierEntryDraft draft) async => store.saveAsking([
+    ...await store.loadAsking(),
+    PendingSupplierEntry(supplierId: supplierId, draft: draft),
+  ]);
+
+  Future<void> stopAsking(String clientRef) async =>
+      store.saveAsking((await store.loadAsking())..removeWhere((p) => p.draft.clientRef == clientRef));
+
+  /// Payments to ask about, for one supplier.
+  Future<List<SupplierEntryDraft>> asking(int supplierId) async => [
+    for (final p in await store.loadAsking())
+      if (p.supplierId == supplierId) p.draft,
+  ];
+
+  /// "Yes, I paid". It is asked again if the server refuses it.
+  Future<EntrySaved> paid(int supplierId, SupplierEntryDraft draft) async {
+    final saved = await addEntry(supplierId, draft);
+    await stopAsking(draft.clientRef);
+    return saved;
+  }
+
   Future<int> pendingCount() async => (await store.loadPending()).length;
 
   /// Sends what was saved offline, oldest first. Returns (sent, refused messages).
@@ -198,18 +240,41 @@ class SupplierRepository {
     return (sent, refused);
   }
 
-  Future<Supplier> addSupplier({required String name, String? mobile, String? supplies, String? note, required String clientRef}) =>
-      api.addSupplier(name: name, mobile: mobile, supplies: supplies, note: note, clientRef: clientRef);
+  Future<SupplierCode> sendNewCode({required String name, required String mobile}) =>
+      api.sendNewCode(name: name, mobile: mobile);
+
+  Future<Supplier> addSupplier({required String name, String? mobile, String? supplies, String? note, String? otp, required String clientRef}) =>
+      api.addSupplier(name: name, mobile: mobile, supplies: supplies, note: note, otp: otp, clientRef: clientRef);
 
   Future<Supplier> changeSupplier(int id, {required String name, String? mobile, String? supplies, String? note}) =>
       api.changeSupplier(id, name: name, mobile: mobile, supplies: supplies, note: note);
 
   Future<Supplier> archiveSupplier(int id) => api.archiveSupplier(id);
 
+  Future<SupplierCode> sendCode(int id) => api.sendCode(id);
+
+  Future<Supplier> verify(int id, String otp) => api.verify(id, otp);
+
+  Future<List<SupplierProduct>> products(int id) => api.products(id);
+
+  Future<SupplierPay> payInfo(int id) => api.payInfo(id);
+
+  Future<Supplier> disconnect(int id) => api.disconnect(id);
+
   Future<SupplierEntry> deleteEntry(int entryId, String reason) => api.deleteEntry(entryId, reason);
 
-  Future<SupplierOrder> addOrder(int supplierId, List<EntryLine> lines, {String note = '', required String clientRef}) =>
-      api.addOrder(supplierId, lines, note: note, clientRef: clientRef);
+  Future<SupplierEntry> confirmEntry(int entryId) => api.confirmEntry(entryId);
+
+  Future<SupplierEntry> disputeEntry(int entryId, String reason) => api.disputeEntry(entryId, reason);
+
+  Future<SupplierOrder> addOrder(
+    int supplierId,
+    List<EntryLine> lines, {
+    String note = '',
+    PayPlan? payPlan,
+    DateTime? payBy,
+    required String clientRef,
+  }) => api.addOrder(supplierId, lines, note: note, payPlan: payPlan, payBy: payBy, clientRef: clientRef);
 
   Future<SupplierOrder> receiveOrder(int orderId, SupplierEntryDraft purchase) => api.receiveOrder(orderId, purchase);
 
@@ -227,7 +292,8 @@ class SupplierRepository {
     var last = s.lastEntryAt;
     for (final p in pending) {
       if (p.supplierId != s.id || skip.contains(p.draft.clientRef)) continue;
-      balance += p.draft.effect;
+      // A connected supplier must agree to a payment before it counts.
+      balance += s.connected && p.draft.effect < 0 ? 0 : p.draft.effect;
       if (last == null || p.draft.entryAt.isAfter(last)) last = p.draft.entryAt;
     }
     return s.copyWith(balancePaise: balance, lastEntryAt: last);

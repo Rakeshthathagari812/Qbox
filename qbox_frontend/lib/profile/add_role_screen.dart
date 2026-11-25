@@ -19,11 +19,8 @@ String _about(QboxRole role) => switch (role) {
   QboxRole.supplier => 'Orders and payments from shops',
 };
 
-/// Supplier's screens are not built yet. Those who have the role keep it.
-const _comingSoon = {QboxRole.supplier};
-
 /// Whether there is a role they can add now.
-bool canAddRole(QboxUser user) => QboxRole.values.any((r) => !user.roles.contains(r) && !_comingSoon.contains(r));
+bool canAddRole(QboxUser user) => QboxRole.values.any((r) => !user.roles.contains(r));
 
 /// Lets the user add one more role to the same account.
 Future<void> addRole(BuildContext context) async {
@@ -79,24 +76,23 @@ class AddRoleScreen extends StatelessWidget {
   }
 
   Widget _card(BuildContext context, QboxUser user, QboxRole role) {
-    final soon = _comingSoon.contains(role);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: soon ? const Color(0xFFF1EEF7) : Colors.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         clipBehavior: Clip.antiAlias,
         child: ListTile(
           key: Key('add-${role.name}'),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: Icon(roleIcon(role), color: soon ? udBody : udPurple, size: 30),
+          leading: Icon(roleIcon(role), color: udPurple, size: 30),
           title: Text(
             roleName(role),
-            style: udText(16, weight: FontWeight.w700, color: soon ? udBody : udInk),
+            style: udText(16, weight: FontWeight.w700, color: udInk),
           ),
-          subtitle: Text(soon ? 'Coming soon' : _about(role), style: udText(13, color: udBody)),
-          trailing: soon ? null : const Icon(Icons.chevron_right_rounded, color: udPurple),
-          onTap: soon ? null : () => _add(context, user, role),
+          subtitle: Text(_about(role), style: udText(13, color: udBody)),
+          trailing: const Icon(Icons.chevron_right_rounded, color: udPurple),
+          onTap: () => _add(context, user, role),
         ),
       ),
     );

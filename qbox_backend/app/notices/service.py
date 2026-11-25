@@ -35,6 +35,7 @@ from app.models import (
     UdhaarEntry,
     User,
 )
+from app.notices import supply
 from app.notices.schemas import TYPES, NoticeKind, NoticeOut, NoticesOut, NoticeType
 from app.stock import service as stock
 from app.suppliers import service as suppliers
@@ -95,8 +96,9 @@ def _all(db: Session, user: User, role: Role, off: set[NoticeType]) -> list[Noti
         out = _paid_online(db, user, since) + _says_paid(db, user, since) + _not_me(db, user, since)
         if NoticeType.STOCK not in off:
             out += _low_stock(db, user, since)
-        return out if NoticeType.SUPPLIER in off else out + _dues(db, user, since)
-    return []
+        return out if NoticeType.SUPPLIER in off else out + _dues(db, user, since) + supply.for_shop(db, user, since)
+    out = supply.for_supplier(db, user, since)
+    return out if NoticeType.STOCK in off else out + supply.low_products(db, user, since)
 
 
 def _books(db: Session, user: User, since: datetime) -> list[NoticeOut]:

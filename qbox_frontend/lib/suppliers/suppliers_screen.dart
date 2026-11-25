@@ -271,6 +271,8 @@ class _SupplierTile extends StatelessWidget {
                         children: [
                           if (s.nextDue != null)
                             UdBadge(s.overdue ? 'Overdue' : 'Pay by ${shortDay(s.nextDue!)}', color: s.overdue ? udDue : udWarn),
+                          if (s.toConfirm > 0) UdBadge('${s.toConfirm} to check', color: udWarn),
+                          if (s.connected) const UdBadge('Connected', color: udPaid),
                           if (s.openOrders > 0)
                             UdBadge(s.openOrders == 1 ? '1 order waiting' : '${s.openOrders} orders waiting', color: udPurple),
                         ],

@@ -180,10 +180,11 @@ void main() {
     expect(api.calls.length, before + 1);
   });
 
-  testWidgets('supplier: an empty bell with nothing to choose', (tester) async {
+  testWidgets('supplier: an empty bell, and what to be told', (tester) async {
     await open(tester, const SupplierHomeScreen());
     await tapKey(tester, 'home-bell');
     expect(at('notices-empty'), findsOneWidget);
-    expect(at('notices-settings'), findsNothing);
+    await tapKey(tester, 'notices-settings');
+    expect(find.byType(SwitchListTile), findsNWidgets(3));
   });
 }

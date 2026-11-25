@@ -17,6 +17,7 @@ import '../stock/stock_repository.dart';
 import '../stock/stock_store.dart';
 import '../suppliers/supplier_api.dart';
 import '../suppliers/supplier_repository.dart';
+import '../supply/supply_repository.dart';
 import '../translator/speech_engines.dart';
 import '../translator/translation_service.dart';
 import '../udhaar/udhaar_api.dart';
@@ -56,6 +57,7 @@ class AppServices {
     required this.photos,
     required this.photoPicker,
     required this.notices,
+    required this.supply,
   });
 
   /// The real backend, on-phone storage, microphone, speaker and notifications.
@@ -95,6 +97,7 @@ class AppServices {
       photos: PhotoRepository(profile, SecurePhotoStore()),
       photoPicker: PhonePhotoPicker(),
       notices: HttpNoticesApi(api),
+      supply: SupplyRepository(HttpSupplyApi(api), SecureSupplyStore()),
     );
   }
 
@@ -143,6 +146,9 @@ class AppServices {
   /// The bell.
   final NoticesApi notices;
 
+  /// The supplier's shops, their accounts and orders.
+  final SupplyRepository supply;
+
   /// Changes made offline that the server does not have yet.
   Future<int> unsentCount() async =>
       await udhaar.pendingCount() +
@@ -163,6 +169,7 @@ class AppServices {
     await transactions.clear();
     await pages.clear();
     await photos.clear();
+    await supply.clear();
     await reminders.syncDues(const []);
   }
 }

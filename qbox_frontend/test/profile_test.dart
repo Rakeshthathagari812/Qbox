@@ -11,7 +11,6 @@ import 'package:qbox_app/models/qbox_user.dart';
 import 'package:qbox_app/onboarding_draft.dart';
 import 'package:qbox_app/profile/add_role_screen.dart';
 import 'package:qbox_app/profile/crop_screen.dart';
-import 'package:qbox_app/profile/edit_profile_screen.dart';
 import 'package:qbox_app/profile/photos.dart';
 import 'package:qbox_app/profile/profile_screen.dart';
 import 'package:qbox_app/services/app_services.dart';
@@ -346,8 +345,7 @@ void main() {
       await profile(tester, QboxRole.customer);
       await tapKey(tester, 'profile-add-role');
       expect(at('add-customer'), findsNothing); // they have it
-      await tapKey(tester, 'add-supplier');
-      expect(find.byType(EditProfileScreen), findsNothing); // coming soon
+      expect(at('add-supplier'), findsOneWidget);
       await tapKey(tester, 'add-business');
       expect(tester.widget<TextField>(at('profile-contactNumber')).controller!.text, '9123456789');
       await tapKey(tester, 'profile-save');
@@ -375,7 +373,7 @@ void main() {
       expect(draft.orderedRoles(), [QboxRole.business, QboxRole.customer]);
       expect(draft.shop.shopName, 'My Shop');
       expect((await session.readUser())!.roles, {QboxRole.business, QboxRole.customer});
-      expect(at('profile-add-role'), findsNothing); // only Supplier is left
+      expect(at('profile-add-role'), findsOneWidget); // Supplier is left
     });
 
     testWidgets('a customer, with the login number; then Choose Your Role lists it, with no add button', (tester) async {
@@ -404,7 +402,7 @@ void main() {
       expect(api.calls, isEmpty);
       expect(at('profile-add-role'), findsOneWidget);
       expect(canAddRole(FakeProfileApi().user), isFalse);
-      expect(canAddRole(only({QboxRole.business, QboxRole.customer})), isFalse);
+      expect(canAddRole(only({QboxRole.business, QboxRole.customer})), isTrue);
     });
   });
 

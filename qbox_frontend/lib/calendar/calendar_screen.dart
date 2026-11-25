@@ -21,6 +21,10 @@ Widget openShopCalendar(BuildContext context) =>
 Widget openCustomerCalendar(BuildContext context) =>
     const CalendarScreen(role: QboxRole.customer);
 
+/// Opens the Supplier calendar (the "Calendar" home tile).
+Widget openSupplierCalendar(BuildContext context) =>
+    const CalendarScreen(role: QboxRole.supplier);
+
 /// Month view, the chosen day's events and festivals, and adding events by
 /// typing or by voice. Events are saved on the server; a copy is kept on the
 /// phone so the calendar still opens offline.
@@ -51,7 +55,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   AppServices get _app => _services!;
 
-  EventCategory get _defaultCategory => widget.role == QboxRole.business
+  EventCategory get _defaultCategory => widget.role != QboxRole.customer
       ? EventCategory.shop
       : EventCategory.personal;
 
@@ -277,9 +281,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: _Header(
-                title: widget.role == QboxRole.business
-                    ? 'Shop Calendar'
-                    : 'My Calendar',
+                title: switch (widget.role) {
+                  QboxRole.business => 'Shop Calendar',
+                  QboxRole.customer => 'My Calendar',
+                  QboxRole.supplier => 'Supply Calendar',
+                },
                 syncing: _syncing,
                 onBack: () => Navigator.of(context).pop(),
                 onToday: _goToday,

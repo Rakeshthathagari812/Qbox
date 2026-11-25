@@ -8,6 +8,7 @@
   the phone was offline) keeps only one.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -175,6 +176,51 @@ def add_move(db: Session, user: User, item_id: int, body: MoveIn) -> MoveOut:
 def own_item(db: Session, user: User, item_id: int) -> StockItem:
     """An item in this shop's stock (404 for anything else)."""
     return _own_item(db, user, item_id)
+
+
+def matcher(db: Session, user: User) -> Callable[[str, str, str | None], StockItem | None]:
+    """Finds the shop's own item for a name, unit and ready-list code. The same
+    name wins; the same ready-list item only if there is just one, so Sona rice
+    is never taken for Basmati."""
+    items = db.scalars(
+        select(StockItem).where(StockItem.shop_user_id == user.id, StockItem.archived_at.is_(None)).order_by(StockItem.id)
+    ).all()
+    by_name = {(i.name.lower(), i.unit): i for i in items}
+    by_code: dict[tuple[str, str], list[StockItem]] = {}
+    for i in items:
+        if i.catalog_code:
+            by_code.setdefault((i.catalog_code, i.unit), []).append(i)
+
+    def match(name: str, unit: str, code: str | None) -> StockItem | None:
+        item = by_name.get((name.lower(), unit))
+        if item is None and code:
+            same = by_code.get((code, unit), [])
+            item = same[0] if len(same) == 1 else None
+        return item
+
+    return match
+
+
+def keep_item(db: Session, user: User, item_id: int | None, name: str, unit: str, code: str | None,
+              client_ref: str) -> StockItem:
+    """The shop's own item for goods that came; added if it does not keep it yet.
+    Not committed: part of the purchase."""
+    item = db.get(StockItem, item_id) if item_id else None
+    if item is not None and item.shop_user_id == user.id and item.archived_at is None and item.unit == unit:
+        return item
+    item = matcher(db, user)(name, unit, code)
+    if item is not None:
+        return item
+    if _by_name(db, user.id, name) is not None:  # kept in another unit
+        name = f"{name[:68]} ({unit.lower()})"
+        item = _by_name(db, user.id, name)
+        if item is not None and item.unit == unit:
+            return item
+    made = _add(db, user, ItemIn(name=name, unit=StockUnit(unit), catalog_code=code, client_ref=client_ref))
+    if made.archived_at is not None:  # received once before, then removed from stock
+        made.archived_at = None
+        db.flush()
+    return made
 
 
 def purchase_in(db: Session, user: User, item_id: int, qty_milli: int, note: str, move_at: datetime,

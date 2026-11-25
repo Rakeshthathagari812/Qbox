@@ -4,9 +4,12 @@ import '../services/api_client.dart';
 import '../services/app_services.dart';
 import '../udhaar/udhaar_models.dart' show newClientRef, normalizeMobile;
 import '../udhaar/udhaar_widgets.dart';
+import 'supplier_code_screen.dart';
 import 'supplier_models.dart';
 
-/// Add a supplier, or change one ([supplier] given). Returns the saved supplier.
+/// Add a supplier, or change one ([supplier] given). When adding, a code the
+/// supplier reads out connects the two at once (it can be skipped). Returns
+/// the saved supplier.
 class SupplierFormScreen extends StatefulWidget {
   const SupplierFormScreen({this.supplier, super.key});
 
@@ -50,7 +53,7 @@ class _SupplierFormScreenState extends State<SupplierFormScreen> {
     });
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool skipCode = false}) async {
     final name = _name.text.trim();
     if (name.isEmpty) {
       setState(() => _error = "Enter the supplier's name");
@@ -62,15 +65,42 @@ class _SupplierFormScreenState extends State<SupplierFormScreen> {
       setState(() => _error = 'Enter a valid 10-digit mobile number');
       return;
     }
+    if (_adding && mobile == null && !skipCode) {
+      setState(() => _error = 'Enter their mobile number, or tap "Add without code"');
+      return;
+    }
+    final repo = ServicesScope.of(context).suppliers;
+    String? text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+    Future<Supplier> add([String? otp]) => repo.addSupplier(
+      name: name,
+      mobile: mobile,
+      supplies: text(_supplies),
+      note: text(_note),
+      otp: otp,
+      clientRef: _clientRef,
+    );
+    if (_adding && !skipCode) {
+      setState(() => _error = null);
+      final saved = await Navigator.of(context).push<Supplier>(
+        MaterialPageRoute(
+          builder: (_) => SupplierCodeScreen(
+            name: name,
+            mobile: mobile!,
+            send: () => repo.sendNewCode(name: name, mobile: mobile),
+            confirm: add,
+          ),
+        ),
+      );
+      if (saved != null && mounted) Navigator.of(context).pop(saved);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
     });
-    final repo = ServicesScope.of(context).suppliers;
-    String? text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
     try {
       final saved = _adding
-          ? await repo.addSupplier(name: name, mobile: mobile, supplies: text(_supplies), note: text(_note), clientRef: _clientRef)
+          ? await add()
           : await repo.changeSupplier(widget.supplier!.id, name: name, mobile: mobile, supplies: text(_supplies), note: text(_note));
       if (mounted) Navigator.of(context).pop(saved);
     } on ApiException catch (e) {
@@ -143,15 +173,29 @@ class _SupplierFormScreenState extends State<SupplierFormScreen> {
                     height: 54,
                     child: FilledButton(
                       key: const Key('supplier-save'),
-                      onPressed: _saving ? null : _save,
+                      onPressed: _saving ? null : () => _save(),
                       style: FilledButton.styleFrom(
                         backgroundColor: udPurple,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         textStyle: udText(16, weight: FontWeight.w700),
                       ),
-                      child: Text(_adding ? 'Add supplier' : 'Save'),
+                      child: Text(_adding ? 'Send code and connect' : 'Save'),
                     ),
                   ),
+                  if (_adding) ...[
+                    const SizedBox(height: 4),
+                    TextButton(
+                      key: const Key('supplier-skip'),
+                      onPressed: _saving ? null : () => _save(skipCode: true),
+                      child: const Text('Add without code'),
+                    ),
+                    Text(
+                      'The code goes to their phone. When they read it out, you are connected: you see their products, '
+                      'and you both see one account.',
+                      textAlign: TextAlign.center,
+                      style: udText(12, color: udBody),
+                    ),
+                  ],
                 ],
               ),
             ),

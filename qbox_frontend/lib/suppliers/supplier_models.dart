@@ -4,7 +4,7 @@ import '../translator/languages.dart';
 import '../udhaar/udhaar_models.dart' show newClientRef;
 
 enum SupplierEntryKind {
-  purchase('PURCHASE', 'Purchase'),
+  purchase('PURCHASE', 'Goods bought'),
   payment('PAYMENT', 'Payment');
 
   const SupplierEntryKind(this.code, this.label);
@@ -41,6 +41,11 @@ enum PayMethod {
 
 enum OrderStatus {
   sent('SENT', 'Waiting for goods'),
+
+  // Only with a connected supplier:
+  accepted('ACCEPTED', 'Accepted'),
+  dispatched('DISPATCHED', 'On the way'),
+  rejected('REJECTED', 'Rejected'),
   received('RECEIVED', 'Received'),
   cancelled('CANCELLED', 'Cancelled');
 
@@ -49,8 +54,75 @@ enum OrderStatus {
   final String code;
   final String label;
 
+  /// Goods may still come.
+  bool get open => this == sent || this == accepted || this == dispatched;
+
   static OrderStatus fromCode(Object? code) =>
       values.firstWhere((s) => s.code == code, orElse: () => OrderStatus.sent);
+}
+
+/// How the shop will pay for an order to a connected supplier.
+enum PayPlan {
+  later('LATER', 'Pay later'),
+  cash('CASH', 'Cash on delivery'),
+  upi('UPI', 'Pay by UPI');
+
+  const PayPlan(this.code, this.label);
+
+  final String code;
+  final String label;
+
+  static PayPlan? fromCode(Object? code) => values.where((p) => p.code == code).firstOrNull;
+}
+
+/// "Pay later, by 5 Dec". Null = not said.
+String? payPlanText(PayPlan? plan, DateTime? payBy, [DateTime? now]) =>
+    plan == null ? null : (payBy == null ? plan.label : '${plan.label}, by ${shortDay(payBy, now)}');
+
+/// A connected supplier's answer about an entry.
+enum Confirm {
+  waiting('WAITING'),
+  confirmed('CONFIRMED'),
+  disputed('DISPUTED'),
+  closed('CLOSED'); // disconnected before it was agreed
+
+  const Confirm(this.code);
+
+  final String code;
+
+  static Confirm? fromCode(Object? code) => values.where((c) => c.code == code).firstOrNull;
+}
+
+/// The supplier's connection with their own QBOX account.
+enum LinkStatus {
+  asked('ASKED'),
+  on('ON'),
+  declined('DECLINED'),
+  cancelled('CANCELLED'),
+  ended('ENDED');
+
+  const LinkStatus(this.code);
+
+  final String code;
+
+  static LinkStatus? fromCode(Object? code) => values.where((s) => s.code == code).firstOrNull;
+}
+
+class SupplierLink {
+  const SupplierLink({required this.status, this.reason});
+
+  final LinkStatus status;
+
+  /// Why they said no.
+  final String? reason;
+
+  static SupplierLink? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final status = LinkStatus.fromCode(json['status']);
+    return status == null ? null : SupplierLink(status: status, reason: json['reason'] as String?);
+  }
+
+  Map<String, dynamic> toJson() => {'status': status.code, 'reason': reason};
 }
 
 class Supplier {
@@ -65,6 +137,10 @@ class Supplier {
     this.nextDue,
     this.overdue = false,
     this.openOrders = 0,
+    this.link,
+    this.verified = false,
+    this.takesUpi = false,
+    this.toConfirm = 0,
   });
 
   final int id;
@@ -82,6 +158,20 @@ class Supplier {
   final bool overdue;
   final int openOrders;
 
+  /// Null = never connected.
+  final SupplierLink? link;
+
+  /// The number was checked with a code the supplier read out.
+  final bool verified;
+
+  /// Connected, and they added a UPI ID.
+  final bool takesUpi;
+
+  /// Entries they wrote, waiting for the shop.
+  final int toConfirm;
+
+  bool get connected => link?.status == LinkStatus.on;
+
   Supplier copyWith({int? balancePaise, DateTime? lastEntryAt}) => Supplier(
     id: id,
     name: name,
@@ -93,6 +183,10 @@ class Supplier {
     nextDue: nextDue,
     overdue: overdue,
     openOrders: openOrders,
+    link: link,
+    verified: verified,
+    takesUpi: takesUpi,
+    toConfirm: toConfirm,
   );
 
   static Supplier? fromJson(Object? json) {
@@ -111,6 +205,10 @@ class Supplier {
       nextDue: _day(json['nextDue']),
       overdue: json['overdue'] == true,
       openOrders: _int(json['openOrders']) ?? 0,
+      link: SupplierLink.fromJson(json['link']),
+      verified: json['verified'] == true,
+      takesUpi: json['takesUpi'] == true,
+      toConfirm: _int(json['toConfirm']) ?? 0,
     );
   }
 
@@ -125,7 +223,83 @@ class Supplier {
     'nextDue': nextDue == null ? null : dayText(nextDue!),
     'overdue': overdue,
     'openOrders': openOrders,
+    'link': link?.toJson(),
+    'verified': verified,
+    'takesUpi': takesUpi,
+    'toConfirm': toConfirm,
   };
+}
+
+/// A code was sent to the supplier's phone.
+class SupplierCode {
+  const SupplierCode({required this.balancePaise, required this.resendInSeconds, this.devOtp});
+
+  /// What the message says the shop owes (negative = paid in advance).
+  final int balancePaise;
+  final int resendInSeconds;
+
+  /// Only in test mode.
+  final String? devOtp;
+
+  static SupplierCode? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    return SupplierCode(
+      balancePaise: _int(json['balancePaise']) ?? 0,
+      resendInSeconds: _int(json['resendInSeconds']) ?? 30,
+      devOtp: json['devOtp'] as String?,
+    );
+  }
+}
+
+/// Something a connected supplier sells.
+class SupplierProduct {
+  const SupplierProduct({
+    required this.id,
+    required this.name,
+    required this.unit,
+    this.catalogCode,
+    this.pricePaise,
+    this.available = true,
+  });
+
+  final int id;
+  final String name;
+  final StockUnit unit;
+  final String? catalogCode;
+
+  /// Per unit.
+  final int? pricePaise;
+  final bool available;
+
+  static SupplierProduct? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final id = json['id'];
+    final name = json['name'];
+    final unit = StockUnit.fromCode(json['unit']);
+    if (id is! int || name is! String || unit == null) return null;
+    return SupplierProduct(
+      id: id,
+      name: name,
+      unit: unit,
+      catalogCode: json['catalogCode'] as String?,
+      pricePaise: _int(json['pricePaise']),
+      available: json['available'] != false,
+    );
+  }
+}
+
+/// Where a connected supplier takes money (asked fresh each time, never kept).
+class SupplierPay {
+  const SupplierPay({required this.name, this.upiId});
+
+  final String name;
+  final String? upiId;
+
+  static SupplierPay? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final name = json['name'];
+    return name is String ? SupplierPay(name: name, upiId: json['upiId'] as String?) : null;
+  }
 }
 
 class SupplierBook {
@@ -149,7 +323,17 @@ class SupplierBook {
 
 /// An item bought or ordered.
 class EntryLine {
-  const EntryLine({required this.name, required this.unit, required this.qtyMilli, this.itemId, this.costPaise});
+  const EntryLine({
+    required this.name,
+    required this.unit,
+    required this.qtyMilli,
+    this.itemId,
+    this.costPaise,
+    this.available = true,
+    this.lineId,
+    this.productId,
+    this.catalogCode,
+  });
 
   final int? itemId;
   final String name;
@@ -159,13 +343,35 @@ class EntryLine {
   /// Buying price per unit (optional).
   final int? costPaise;
 
+  /// Orders: the supplier has it.
+  final bool available;
+
+  /// Its place in an order.
+  final int? lineId;
+
+  /// Chosen from the supplier's products.
+  final int? productId;
+
+  /// From the ready list: finds the shop's own item in any language.
+  final String? catalogCode;
+
   static EntryLine? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
     final name = json['name'];
     final unit = StockUnit.fromCode(json['unit']);
     final qty = _int(json['qtyMilli']);
     if (name is! String || unit == null || qty == null) return null;
-    return EntryLine(itemId: _int(json['itemId']), name: name, unit: unit, qtyMilli: qty, costPaise: _int(json['costPaise']));
+    return EntryLine(
+      itemId: _int(json['itemId']),
+      name: name,
+      unit: unit,
+      qtyMilli: qty,
+      costPaise: _int(json['costPaise']),
+      available: json['available'] != false,
+      lineId: _int(json['id']),
+      productId: _int(json['productId']),
+      catalogCode: json['catalogCode'] as String?,
+    );
   }
 
   Map<String, dynamic> toJson() => {
@@ -174,10 +380,24 @@ class EntryLine {
     'unit': unit.code,
     'qtyMilli': qtyMilli,
     'costPaise': costPaise,
+    'available': available,
+    'id': lineId,
+    'productId': productId,
+    'catalogCode': catalogCode,
   };
 
-  /// What the backend needs: which stock item, how much, at what price.
-  Map<String, dynamic> toInput() => {'itemId': itemId, 'qtyMilli': qtyMilli, 'costPaise': costPaise};
+  /// What the backend needs: which item, how much, at what price.
+  Map<String, dynamic> toInput() => {
+    if (itemId != null)
+      'itemId': itemId
+    else if (lineId != null)
+      'orderLineId': lineId
+    else if (productId != null)
+      'productId': productId
+    else ...{'name': name, 'unit': unit.code, 'catalogCode': catalogCode},
+    'qtyMilli': qtyMilli,
+    'costPaise': costPaise,
+  };
 }
 
 /// A purchase or payment as filled in. [clientRef] is made on the phone, so
@@ -192,6 +412,7 @@ class SupplierEntryDraft {
     this.method,
     this.paidNow = false,
     this.lines = const [],
+    this.orderId,
     String? clientRef,
   }) : clientRef = clientRef ?? newClientRef();
 
@@ -203,6 +424,9 @@ class SupplierEntryDraft {
   final PayMethod? method;
   final bool paidNow;
   final List<EntryLine> lines;
+
+  /// Payments: the order it pays for.
+  final int? orderId;
   final String clientRef;
 
   /// How this changes what the shop owes.
@@ -217,6 +441,7 @@ class SupplierEntryDraft {
     'method': method?.code,
     'paidNow': paidNow,
     'lines': [for (final l in lines) l.toInput()],
+    'orderId': orderId,
     'clientRef': clientRef,
   };
 
@@ -240,6 +465,7 @@ class SupplierEntryDraft {
       method: PayMethod.fromCode(json['method']),
       paidNow: json['paidNow'] == true,
       lines: lines is List ? lines.map(EntryLine.fromJson).whereType<EntryLine>().toList() : const [],
+      orderId: _int(json['orderId']),
       clientRef: ref,
     );
   }
@@ -257,9 +483,12 @@ class SupplierEntry {
     this.method,
     this.orderId,
     this.lines = const [],
+    this.confirm,
+    this.disputeReason,
     this.deletedAt,
     this.deleteReason,
     this.pending = false,
+    this.bySupplier = false,
   });
 
   /// Saved on the phone and not yet sent: no id yet. A purchase paid on the
@@ -287,11 +516,30 @@ class SupplierEntry {
   final PayMethod? method;
   final int? orderId;
   final List<EntryLine> lines;
+
+  /// Shared with a connected supplier: their answer. Null = not shared.
+  final Confirm? confirm;
+  final String? disputeReason;
   final DateTime? deletedAt;
   final String? deleteReason;
   final bool pending;
 
+  /// The supplier wrote it: the shop answers.
+  final bool bySupplier;
+
   bool get deleted => deletedAt != null;
+
+  /// Waiting for the shop's answer.
+  bool get toAnswer => bySupplier && !deleted && confirm == Confirm.waiting;
+
+  /// What someone writes against themselves counts at once; in their own favour,
+  /// when the other side agrees.
+  bool get counts {
+    if (deleted) return false;
+    if ((kind == SupplierEntryKind.purchase) != bySupplier) return true;
+    if (confirm == null || confirm == Confirm.confirmed) return true;
+    return confirm == Confirm.closed && !bySupplier;
+  }
 
   static SupplierEntry? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
@@ -311,8 +559,11 @@ class SupplierEntry {
       method: PayMethod.fromCode(json['method']),
       orderId: _int(json['orderId']),
       lines: lines is List ? lines.map(EntryLine.fromJson).whereType<EntryLine>().toList() : const [],
+      confirm: Confirm.fromCode(json['confirm']),
+      disputeReason: json['disputeReason'] as String?,
       deletedAt: _time(json['deletedAt']),
       deleteReason: json['deleteReason'] as String?,
+      bySupplier: json['bySupplier'] == true,
     );
   }
 
@@ -322,11 +573,14 @@ class SupplierEntry {
     'amountPaise': amountPaise,
     'entryAt': entryAt.toUtc().toIso8601String(),
     'clientRef': clientRef,
+    'bySupplier': bySupplier,
     'note': note,
     'dueDate': dueDate == null ? null : dayText(dueDate!),
     'method': method?.code,
     'orderId': orderId,
     'lines': [for (final l in lines) l.toJson()],
+    'confirm': confirm?.code,
+    'disputeReason': disputeReason,
     'deletedAt': deletedAt?.toUtc().toIso8601String(),
     'deleteReason': deleteReason,
   };
@@ -340,6 +594,13 @@ class SupplierOrder {
     this.note,
     this.createdAt,
     this.receivedAt,
+    this.shared = false,
+    this.totalPaise,
+    this.answerNote,
+    this.payPlan,
+    this.payBy,
+    this.paidPaise = 0,
+    this.payingPaise = 0,
   });
 
   final int id;
@@ -349,7 +610,28 @@ class SupplierOrder {
   final DateTime? createdAt;
   final DateTime? receivedAt;
 
-  bool get open => status == OrderStatus.sent;
+  /// Sent in QBOX to a connected supplier; their bill and note.
+  final bool shared;
+  final int? totalPaise;
+  final String? answerNote;
+
+  /// How the shop said it will pay.
+  final PayPlan? payPlan;
+  final DateTime? payBy;
+
+  /// Paid for this order: counted, and waiting for the supplier to confirm.
+  final int paidPaise;
+  final int payingPaise;
+
+  bool get open => status.open;
+
+  bool get paidSomething => paidPaise + payingPaise > 0;
+
+  /// Still to pay (0 until there is a bill).
+  int get leftPaise {
+    final left = (totalPaise ?? 0) - paidPaise - payingPaise;
+    return left > 0 ? left : 0;
+  }
 
   static SupplierOrder? fromJson(Object? json) {
     if (json is! Map<String, dynamic>) return null;
@@ -363,6 +645,13 @@ class SupplierOrder {
       note: json['note'] as String?,
       createdAt: _time(json['createdAt']),
       receivedAt: _time(json['receivedAt']),
+      shared: json['shared'] == true,
+      totalPaise: _int(json['totalPaise']),
+      answerNote: json['answerNote'] as String?,
+      payPlan: PayPlan.fromCode(json['payPlan']),
+      payBy: _day(json['payBy']),
+      paidPaise: _int(json['paidPaise']) ?? 0,
+      payingPaise: _int(json['payingPaise']) ?? 0,
     );
   }
 
@@ -373,6 +662,13 @@ class SupplierOrder {
     'note': note,
     'createdAt': createdAt?.toUtc().toIso8601String(),
     'receivedAt': receivedAt?.toUtc().toIso8601String(),
+    'shared': shared,
+    'totalPaise': totalPaise,
+    'answerNote': answerNote,
+    'payPlan': payPlan?.code,
+    'payBy': payBy == null ? null : dayText(payBy!),
+    'paidPaise': paidPaise,
+    'payingPaise': payingPaise,
   };
 }
 
@@ -408,7 +704,6 @@ class SupplierDetail {
 String orderMessage({
   required String shopName,
   required List<EntryLine> lines,
-  required Map<int, String?> catalogCodes,
   AppLanguage language = AppLanguage.english,
   String note = '',
 }) {
@@ -417,7 +712,7 @@ String orderMessage({
     final line = lines[i];
     final local = language == AppLanguage.english
         ? null
-        : catalogItem(catalogCodes[line.itemId])?.nameIn(language);
+        : catalogItem(line.catalogCode)?.nameIn(language);
     final name = local == null || local == line.name ? line.name : '${line.name} ($local)';
     buffer.writeln('${i + 1}. $name - ${formatQty(line.qtyMilli, line.unit)}');
   }

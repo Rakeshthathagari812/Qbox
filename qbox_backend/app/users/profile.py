@@ -8,6 +8,7 @@ from app.auth.schemas import AddRoleIn, ShopIn, SupplierIn
 from app.errors import ApiError
 from app.models import Role, User
 from app.security import check_secret, create_access_token, hash_secret
+from app.supply import links
 from app.users.schemas import CustomerEditIn, TokenOut
 
 
@@ -53,6 +54,8 @@ def add_role(db: Session, user: User, body: AddRoleIn) -> None:
     auth.check_pin(db, user, body.pin, ApiError(400, "WRONG_PIN", "The PIN is not right"))
     if body.role.value not in {r.role for r in user.roles}:
         auth.give_roles(user, body)
+        if body.role is Role.SUPPLIER:
+            links.welcome(db, user)
     db.commit()
 
 

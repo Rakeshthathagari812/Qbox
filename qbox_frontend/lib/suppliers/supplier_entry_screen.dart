@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
 import '../services/app_services.dart';
-import '../stock/stock_models.dart';
 import '../udhaar/udhaar_models.dart' show paiseToText, parsePaise, rupees;
 import '../udhaar/udhaar_widgets.dart';
 import 'supplier_models.dart';
@@ -13,8 +12,8 @@ import 'supplier_widgets.dart';
 /// What happened when the form was saved.
 enum EntryResult { saved, savedOffline, received }
 
-/// A purchase or a payment for one supplier. With [order], it records the
-/// order's goods as received (a purchase made from what actually came).
+/// Goods bought, or a payment, for one supplier. With [order], it records the
+/// order's goods as received. The items go into stock by themselves.
 class SupplierEntryScreen extends StatefulWidget {
   const SupplierEntryScreen({required this.supplier, required this.kind, this.order, this.now, super.key});
 
@@ -32,7 +31,7 @@ class _SupplierEntryScreenState extends State<SupplierEntryScreen> {
   final _amount = TextEditingController();
   final _note = TextEditingController();
   final _lines = LinesController();
-  List<StockItem> _items = const [];
+  List<SupplierProduct> _products = const [];
   bool _paidNow = false;
   PayMethod _method = PayMethod.cash;
   DateTime? _due;
@@ -41,6 +40,9 @@ class _SupplierEntryScreenState extends State<SupplierEntryScreen> {
 
   AppServices get _app => _services!;
   bool get _purchase => widget.kind == SupplierEntryKind.purchase;
+
+  /// The order is paid (or said to be) already: not a second time.
+  bool get _paidBefore => widget.order?.paidSomething ?? false;
   DateTime get _now => widget.now ?? DateTime.now();
 
   @override
@@ -48,7 +50,12 @@ class _SupplierEntryScreenState extends State<SupplierEntryScreen> {
     super.didChangeDependencies();
     if (_services != null) return;
     _services = ServicesScope.of(context);
-    if (_purchase) _loadItems();
+    final order = widget.order;
+    if (order != null) {
+      _fill(order);
+    } else if (_purchase && widget.supplier.connected) {
+      _loadProducts();
+    }
   }
 
   @override
@@ -59,23 +66,23 @@ class _SupplierEntryScreenState extends State<SupplierEntryScreen> {
     super.dispose();
   }
 
-  Future<void> _loadItems() async {
-    var book = await _app.stock.savedBook();
-    try {
-      book = await _app.stock.freshBook();
-    } on ApiException {
-      // Offline: the phone copy is enough to choose items.
+  /// What was ordered, the supplier's own bill, and how the shop said it pays.
+  void _fill(SupplierOrder order) {
+    for (final line in order.lines.where((l) => l.available)) {
+      _lines.add(line);
     }
-    if (!mounted) return;
-    final items = book?.items ?? const <StockItem>[];
-    setState(() => _items = items);
-    final order = widget.order;
-    if (order != null) {
-      for (final line in order.lines) {
-        final item = items.where((i) => i.id == line.itemId).firstOrNull;
-        if (item != null) _lines.add(item, qtyMilli: line.qtyMilli);
-      }
-      _useItemsTotal();
+    final bill = order.totalPaise ?? _lines.costTotal;
+    if (bill != null) _amount.text = paiseToText(bill);
+    _paidNow = order.payPlan == PayPlan.cash && !_paidBefore;
+    _due = order.payBy;
+  }
+
+  Future<void> _loadProducts() async {
+    try {
+      final products = await _app.suppliers.products(widget.supplier.id);
+      if (mounted) setState(() => _products = products);
+    } on ApiException {
+      // The items can be typed.
     }
   }
 
@@ -140,7 +147,7 @@ class _SupplierEntryScreenState extends State<SupplierEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final title = widget.order != null ? 'Goods received' : (_purchase ? 'Purchase' : 'Payment');
+    final title = widget.order != null ? 'Goods received' : (_purchase ? 'Goods bought' : 'Payment');
     final total = _lines.costTotal;
     return Scaffold(
       backgroundColor: udBackground,
@@ -149,114 +156,141 @@ class _SupplierEntryScreenState extends State<SupplierEntryScreen> {
           children: [
             UdHeader(title: title, subtitle: widget.supplier.name, busy: _saving),
             Expanded(
-              child: ListView(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                children: [
-                  if (_purchase)
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_purchase)
+                      UdCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              widget.order != null ? 'What came?' : 'What did you buy? (optional)',
+                              style: udText(14, weight: FontWeight.w700),
+                            ),
+                            Text('It is added to your stock by itself.', style: udText(12, color: udBody)),
+                            const SizedBox(height: 8),
+                            LinesEditor(
+                              controller: _lines,
+                              products: _products,
+                              withCost: true,
+                              onChanged: () => setState(() {}),
+                            ),
+                            if (total != null)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  key: const Key('entry-use-total'),
+                                  onPressed: _useItemsTotal,
+                                  child: Text('Use items total ${rupees(total)}'),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (_purchase) const SizedBox(height: 12),
                     UdCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(widget.order != null ? 'What came (stock goes up)' : 'Items bought (optional, added to stock)',
-                              style: udText(14, weight: FontWeight.w700)),
-                          const SizedBox(height: 8),
-                          LinesEditor(controller: _lines, items: _items, withCost: true, onChanged: () => setState(() {})),
-                          if (total != null)
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                key: const Key('entry-use-total'),
-                                onPressed: _useItemsTotal,
-                                child: Text('Use items total ${rupees(total)}'),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              key: const Key('entry-amount'),
+                              controller: _amount,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
+                              style: udText(28, weight: FontWeight.w800),
+                              decoration: InputDecoration(
+                                labelText: _purchase ? 'Bill amount' : 'Amount paid',
+                                prefixText: '₹ ',
                               ),
                             ),
-                        ],
-                      ),
-                    ),
-                  if (_purchase) const SizedBox(height: 12),
-                  UdCard(
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          key: const Key('entry-amount'),
-                          controller: _amount,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
-                          style: udText(28, weight: FontWeight.w800),
-                          decoration: InputDecoration(
-                            labelText: _purchase ? 'Bill amount' : 'Amount paid',
-                            prefixText: '₹ ',
-                          ),
-                        ),
-                        if (_purchase)
-                          SwitchListTile(
-                            key: const Key('entry-paid-now'),
-                            contentPadding: EdgeInsets.zero,
-                            value: _paidNow,
-                            onChanged: (v) => setState(() => _paidNow = v),
-                            title: Text('Paid now', style: udText(14, weight: FontWeight.w600)),
-                            subtitle: Text(_paidNow ? 'Nothing is added to what you owe' : 'Added to what you owe',
-                                style: udText(12, color: udBody)),
-                          ),
-                        if (!_purchase || _paidNow)
-                          Wrap(
-                            spacing: 6,
-                            children: [
-                              for (final m in PayMethod.values)
-                                ChoiceChip(
-                                  key: Key('entry-method-${m.code}'),
-                                  label: Text(m.label),
-                                  selected: _method == m,
-                                  onSelected: (_) => setState(() => _method = m),
+                            if (_paidBefore)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'Already paid ${rupees(widget.order!.paidPaise + widget.order!.payingPaise)} for this order.',
+                                  key: const Key('entry-paid-before'),
+                                  style: udText(13, weight: FontWeight.w600, color: udPaid),
                                 ),
-                            ],
-                          ),
-                        if (_purchase && !_paidNow)
-                          ListTile(
-                            key: const Key('entry-due'),
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.event_outlined, color: udPurple),
-                            title: Text(_due == null ? 'Pay by date (optional)' : 'Pay by ${shortDay(_due!, _now)}',
-                                style: udText(14, weight: FontWeight.w600)),
-                            subtitle: Text('A reminder rings on that day', style: udText(12, color: udBody)),
-                            trailing: _due == null
-                                ? null
-                                : IconButton(onPressed: () => setState(() => _due = null), icon: const Icon(Icons.close_rounded)),
-                            onTap: _pickDue,
-                          ),
-                        TextField(
-                          key: const Key('entry-note'),
-                          controller: _note,
-                          maxLength: 200,
-                          decoration: const InputDecoration(labelText: 'Note (optional), e.g. bill number', counterText: ''),
+                              )
+                            else if (_purchase)
+                              SwitchListTile(
+                                key: const Key('entry-paid-now'),
+                                contentPadding: EdgeInsets.zero,
+                                value: _paidNow,
+                                onChanged: (v) => setState(() => _paidNow = v),
+                                title: Text('Paid now', style: udText(14, weight: FontWeight.w600)),
+                                subtitle: Text(
+                                  _paidNow ? 'Nothing is added to what you owe' : 'Added to what you owe',
+                                  style: udText(12, color: udBody),
+                                ),
+                              ),
+                            if (!_purchase || _paidNow)
+                              Wrap(
+                                spacing: 6,
+                                children: [
+                                  for (final m in PayMethod.values)
+                                    ChoiceChip(
+                                      key: Key('entry-method-${m.code}'),
+                                      label: Text(m.label),
+                                      selected: _method == m,
+                                      onSelected: (_) => setState(() => _method = m),
+                                    ),
+                                ],
+                              ),
+                            if (_purchase && !_paidNow && !_paidBefore)
+                              ListTile(
+                                key: const Key('entry-due'),
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.event_outlined, color: udPurple),
+                                title: Text(
+                                  _due == null ? 'Pay by date (optional)' : 'Pay by ${shortDay(_due!, _now)}',
+                                  style: udText(14, weight: FontWeight.w600),
+                                ),
+                                subtitle: Text('A reminder rings on that day', style: udText(12, color: udBody)),
+                                trailing: _due == null
+                                    ? null
+                                    : IconButton(
+                                        onPressed: () => setState(() => _due = null),
+                                        icon: const Icon(Icons.close_rounded),
+                                      ),
+                                onTap: _pickDue,
+                              ),
+                            TextField(
+                              key: const Key('entry-note'),
+                              controller: _note,
+                              maxLength: 200,
+                              decoration: const InputDecoration(
+                                labelText: 'Note (optional), e.g. bill number',
+                                counterText: '',
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    ),
-                  ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(_error!, key: const Key('entry-error'), style: udText(13, weight: FontWeight.w600, color: udDue)),
-                    ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 54,
-                    child: FilledButton(
-                      key: const Key('entry-save'),
-                      onPressed: _saving ? null : _save,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _purchase ? udDue : udPaid,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        textStyle: udText(16, weight: FontWeight.w700),
                       ),
-                      child: Text(widget.order != null ? 'Save: goods received' : 'Save'),
                     ),
-                  ),
-                ],
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          _error!,
+                          key: const Key('entry-error'),
+                          style: udText(13, weight: FontWeight.w600, color: udDue),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    WideButton(
+                      key: const Key('entry-save'),
+                      label: widget.order != null ? 'Save: goods received' : 'Save',
+                      color: _purchase && widget.order == null ? udDue : udPaid,
+                      onPressed: _saving ? null : _save,
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

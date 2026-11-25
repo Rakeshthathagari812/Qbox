@@ -8,6 +8,10 @@ import '../payments/payments_screen.dart';
 import '../services/api_client.dart';
 import '../stock/stock_screen.dart';
 import '../suppliers/suppliers_screen.dart';
+import '../supply/products_screen.dart';
+import '../supply/supply_orders_screen.dart';
+import '../supply/supply_payments_screen.dart';
+import '../supply/supply_shops_screen.dart';
 import '../udhaar/my_udhaar_screen.dart';
 import '../udhaar/udhaar_models.dart' show rupees;
 import '../udhaar/udhaar_screen.dart';
@@ -22,7 +26,9 @@ enum NoticeType {
   budget('BUDGET', 'Budget', 'When your monthly budget is nearly used'),
   customer('CUSTOMER', 'Customers', '"This is not my number" reports'),
   stock('STOCK', 'Low stock', 'Items running low'),
-  supplier('SUPPLIER', 'Supplier dues', 'Suppliers to pay today or earlier');
+  supplier('SUPPLIER', 'Suppliers', 'Dues, and answers from connected suppliers'),
+  order('ORDER', 'Orders', 'New, cancelled and received orders'),
+  ledger('LEDGER', 'Shop ledger', 'Shops asking to connect, and entries to confirm');
 
   const NoticeType(this.code, this.label, this.about);
 
@@ -35,7 +41,7 @@ enum NoticeType {
   static List<NoticeType> of(QboxRole role) => switch (role) {
     QboxRole.customer => const [udhaar, payment, budget],
     QboxRole.business => const [payment, customer, stock, supplier],
-    QboxRole.supplier => const [],
+    QboxRole.supplier => const [order, ledger, stock],
   };
 }
 
@@ -186,6 +192,10 @@ Widget _payments() => const PaymentsScreen();
 Widget _book() => const UdhaarScreen();
 Widget _stock() => const StockScreen();
 Widget _suppliers() => const SuppliersScreen();
+Widget _orders() => const SupplyOrdersScreen();
+Widget _ledger() => const SupplyShopsScreen();
+Widget _products() => const ProductsScreen();
+Widget _received() => const SupplyPaymentsScreen();
 
 final _words = <String, _Words>{
   'ADDED': _Words(Icons.menu_book_rounded, udPurple, (n) => '${n.name} added you to its udhaar book', _myUdhaar),
@@ -258,6 +268,82 @@ final _words = <String, _Words>{
     (_) => 'Please check and decide.',
   ),
   'LOW_STOCK': _Words(Icons.inventory_2_outlined, udWarn, (n) => '${n.name} is running low', _stock, (n) => n.left),
+  'CONNECTED': _Words(Icons.link_rounded, udPaid, (n) => '${n.name} connected with you', _suppliers),
+  'NOT_CONNECTED': _Words(Icons.link_off_rounded, udWarn, (n) => '${n.name} did not connect', _suppliers),
+  'SUPPLIER_LEFT': _Words(Icons.link_off_rounded, udWarn, (n) => '${n.name} disconnected', _suppliers),
+  'ORDER_ACCEPTED': _Words(
+    Icons.check_circle_outline_rounded,
+    udPaid,
+    (n) => '${n.name} accepted your order: bill ${n.amount}',
+    _suppliers,
+  ),
+  'ORDER_REJECTED': _Words(Icons.cancel_outlined, udDue, (n) => '${n.name} rejected your order', _suppliers),
+  'ORDER_SENT': _Words(Icons.local_shipping_outlined, udPurple, (n) => '${n.name}: your goods are on the way', _suppliers),
+  'MONEY_CONFIRMED': _Words(Icons.check_circle_outline_rounded, udPaid, (n) => '${n.name} received your ${n.amount}', _suppliers),
+  'NOT_RIGHT': _Words(Icons.error_outline_rounded, udDue, (n) => '${n.name} says ${n.amount} is not right', _suppliers),
+  'WANTS_TO_CONNECT': _Words(
+    Icons.link_rounded,
+    udPurple,
+    (n) => '${n.name} wants to connect',
+    _ledger,
+    (_) => 'Check the amount and answer.',
+  ),
+  'THEY_GAVE': _Words(
+    Icons.help_outline_rounded,
+    udWarn,
+    (n) => '${n.name} wrote goods of ${n.amount}. Is it right?',
+    _suppliers,
+  ),
+  'THEY_GOT': _Words(
+    Icons.payments_outlined,
+    udPaid,
+    (n) => '${n.name} wrote that you paid ${n.amount}',
+    _suppliers,
+  ),
+  'THEY_DELETED': _Words(
+    Icons.delete_outline_rounded,
+    udWarn,
+    (n) => '${n.name} deleted an entry of ${n.amount}',
+    _suppliers,
+  ),
+  'SHOP_AGREED': _Words(
+    Icons.check_circle_outline_rounded,
+    udPaid,
+    (n) => '${n.name} confirmed ${n.amount}',
+    _ledger,
+  ),
+  'SHOP_NOT_RIGHT': _Words(
+    Icons.error_outline_rounded,
+    udDue,
+    (n) => '${n.name} says ${n.amount} is not right',
+    _ledger,
+  ),
+  'PRODUCT_LOW': _Words(
+    Icons.inventory_2_outlined,
+    udWarn,
+    (n) => '${n.name} is running low',
+    _products,
+    (n) => n.left,
+  ),
+  'SHOP_LEFT': _Words(Icons.link_off_rounded, udWarn, (n) => '${n.name} disconnected', _ledger),
+  'NEW_ORDER': _Words(Icons.add_shopping_cart_rounded, udWarn, (n) => 'New order from ${n.name}', _orders),
+  'ORDER_CANCELLED': _Words(Icons.cancel_outlined, udDue, (n) => '${n.name} cancelled an order', _orders),
+  'ORDER_RECEIVED': _Words(Icons.inventory_2_outlined, udPaid, (n) => '${n.name} received the goods', _orders),
+  'CONFIRM_PURCHASE': _Words(
+    Icons.help_outline_rounded,
+    udWarn,
+    (n) => '${n.name} wrote goods for ${n.amount}',
+    _ledger,
+    (n) => n.note ?? 'Please check it.',
+  ),
+  'CONFIRM_PAYMENT': _Words(
+    Icons.help_outline_rounded,
+    udWarn,
+    (n) => '${n.name} says they paid ${n.amount}',
+    _received,
+    (_) => 'Confirm when the money came.',
+  ),
+  'ENTRY_DELETED': _Words(Icons.delete_outline_rounded, udWarn, (n) => '${n.name} deleted ${n.amount}', _ledger),
   'SUPPLIER_DUE': _Words(
     Icons.local_shipping_outlined,
     udDue,

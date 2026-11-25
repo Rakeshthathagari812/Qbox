@@ -19,7 +19,7 @@ MAX_QTY_MILLI = 1_000_000_000  # 10 lakh units
 MAX_PRICE_PAISE = 100_000_000  # ₹10 lakh per unit
 
 
-def _catalog_code(value: str | None) -> str | None:
+def catalog_code_ok(value: str | None) -> str | None:
     if value is None:
         return None
     if not re.fullmatch(r"[a-z0-9_]{1,40}", value):
@@ -41,7 +41,7 @@ Note = Annotated[str | None, Field(max_length=200), AfterValidator(_clean)]
 class ItemIn(CamelModel):
     name: ItemName
     unit: StockUnit
-    catalog_code: Annotated[str | None, AfterValidator(_catalog_code)] = None
+    catalog_code: Annotated[str | None, AfterValidator(catalog_code_ok)] = None
     opening_milli: int = Field(default=0, ge=0, le=MAX_QTY_MILLI)  # stock already in the shop
     cost_paise: Price = None
     price_paise: Price = None

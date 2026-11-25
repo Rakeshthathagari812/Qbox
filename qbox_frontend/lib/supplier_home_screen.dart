@@ -3,9 +3,18 @@ import 'package:flutter/material.dart';
 import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
+import 'calculator/calculator_screen.dart';
+import 'calendar/calendar_screen.dart';
 import 'onboarding_draft.dart';
 import 'profile/home_actions.dart';
+import 'supply/products_screen.dart';
+import 'supply/supply_orders_screen.dart';
+import 'supply/supply_payments_screen.dart';
+import 'supply/supply_report_screen.dart';
+import 'supply/supply_shops_screen.dart';
+import 'translator/translator_screen.dart';
 import 'widgets/qbox_wave.dart';
+import 'widgets/tool_tap.dart';
 
 /// Supplier home shown after the user chooses Supplier.
 class SupplierHomeScreen extends StatelessWidget {
@@ -244,15 +253,14 @@ class _ToolGrid extends StatelessWidget {
   const _ToolGrid();
 
   static const _tools = [
-    _Tool('New Orders', '(From Shops)', icon: Icons.add_shopping_cart_outlined),
-    _Tool('Order History', '', icon: Icons.fact_check_outlined),
-    _Tool('Supply Management', '', icon: Icons.inventory_2_outlined),
-    _Tool('Deliveries & Status', '', icon: Icons.local_shipping_outlined),
-    _Tool('Payments & Collections', '', rupee: true),
-    _Tool('Shop Ledger', '(All Shops)', icon: Icons.menu_book_outlined),
-    _Tool('Inventory', '(Stock)', icon: Icons.widgets_outlined),
-    _Tool('Supply Calendar', '', icon: Icons.calendar_month_outlined),
-    _Tool('Reports & Insights', '', icon: Icons.bar_chart_rounded),
+    _Tool('Orders', '(From shops)', icon: Icons.add_shopping_cart_outlined, opens: openSupplyOrders),
+    _Tool('Shop Ledger', '(All shops)', icon: Icons.menu_book_outlined, opens: openSupplyShops),
+    _Tool('Payments', '(From shops)', rupee: true, opens: openSupplyPayments),
+    _Tool('Products', '(Prices, stock)', icon: Icons.widgets_outlined, opens: openProducts),
+    _Tool('Reports', '', icon: Icons.bar_chart_rounded, opens: openSupplyReport),
+    _Tool('Calendar', '', icon: Icons.calendar_month_outlined, opens: openSupplierCalendar),
+    _Tool('Calculator', '', icon: Icons.calculate_outlined, opens: openCalculator),
+    _Tool('Translator', '', icon: Icons.translate, opens: openTranslator),
   ];
 
   @override
@@ -272,12 +280,15 @@ class _ToolGrid extends StatelessWidget {
 }
 
 class _Tool {
-  const _Tool(this.title, this.caption, {this.icon, this.rupee = false});
+  const _Tool(this.title, this.caption, {this.icon, this.rupee = false, this.opens});
 
   final String title;
   final String caption;
   final IconData? icon;
   final bool rupee;
+
+  /// The screen this tile opens, once the feature is built.
+  final WidgetBuilder? opens;
 }
 
 class _ToolTile extends StatelessWidget {
@@ -287,7 +298,10 @@ class _ToolTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return ToolTap(
+      label: tool.title,
+      opens: tool.opens,
+      child: DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
@@ -347,6 +361,7 @@ class _ToolTile extends StatelessWidget {
               ),
           ],
         ),
+      ),
       ),
     );
   }

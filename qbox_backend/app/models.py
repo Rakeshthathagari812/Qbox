@@ -49,6 +49,7 @@ class OtpPurpose(str, enum.Enum):
     SIGNUP = "SIGNUP"
     RESET_PIN = "RESET_PIN"
     UDHAAR_ADD = "UDHAAR_ADD"  # a shop adding this mobile to its udhaar book
+    SUPPLIER_ADD = "SUPPLIER_ADD"  # a shop connecting with this supplier
 
 
 class EntryKind(str, enum.Enum):
@@ -162,9 +163,40 @@ class PayMethod(str, enum.Enum):
 
 
 class OrderStatus(str, enum.Enum):
-    SENT = "SENT"  # sent to the supplier (WhatsApp), waiting for the goods
+    SENT = "SENT"  # sent to the supplier, waiting for the goods
+    # Only with a connected supplier:
+    ACCEPTED = "ACCEPTED"  # they will give it, with prices
+    REJECTED = "REJECTED"
+    DISPATCHED = "DISPATCHED"  # on the way
     RECEIVED = "RECEIVED"  # goods came: recorded as a purchase, stock went up
     CANCELLED = "CANCELLED"
+
+
+class PayPlan(str, enum.Enum):
+    """How the shop will pay for an order to a connected supplier."""
+
+    LATER = "LATER"  # added to what it owes when the goods come
+    CASH = "CASH"  # when the goods come
+    UPI = "UPI"  # after the supplier accepts
+
+
+class LinkStatus(str, enum.Enum):
+    """A shop's supplier connected with a QBOX Supplier account."""
+
+    ASKED = "ASKED"  # the shop asked
+    ON = "ON"  # the supplier said yes
+    DECLINED = "DECLINED"
+    CANCELLED = "CANCELLED"  # the shop took the question back
+    ENDED = "ENDED"
+
+
+class Confirm(str, enum.Enum):
+    """The supplier's answer about an entry written while connected."""
+
+    WAITING = "WAITING"
+    CONFIRMED = "CONFIRMED"
+    DISPUTED = "DISPUTED"
+    CLOSED = "CLOSED"  # disconnected before it was agreed
 
 
 class Repeat(str, enum.Enum):
@@ -269,7 +301,7 @@ class OtpCode(Base):
 
     __tablename__ = "otp_codes"
     __table_args__ = (
-        CheckConstraint("purpose IN ('SIGNUP', 'RESET_PIN', 'UDHAAR_ADD')", name="otp_codes_purpose_check"),
+        CheckConstraint("purpose IN ('SIGNUP', 'RESET_PIN', 'UDHAAR_ADD', 'SUPPLIER_ADD')", name="otp_codes_purpose_check"),
         Index("idx_otp_codes_lookup", "mobile", "purpose", "created_at"),
     )
 
@@ -282,8 +314,10 @@ class OtpCode(Base):
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # When the verification token made from this OTP was used (it works only once).
     token_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # For UDHAAR_ADD: the shop that asked. Only that shop can use the code.
+    # For UDHAAR_ADD and SUPPLIER_ADD: the shop that asked. Only that shop can use the code.
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # What the message said the code is for; it works for nothing else.
+    detail: Mapped[str | None] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -416,7 +450,8 @@ class StockMove(Base):
 
 
 class Supplier(Base):
-    """Someone the shop buys from. The shop's own record: no OTP needed."""
+    """Someone the shop buys from. The shop's own record; [verified_at] = the
+    number was checked with a code the supplier read out."""
 
     __tablename__ = "suppliers"
     __table_args__ = (
@@ -431,11 +466,83 @@ class Supplier(Base):
     supplies: Mapped[str | None] = mapped_column(String(200))  # "Rice, dal, oil"
     note: Mapped[str | None] = mapped_column(String(300))
     client_ref: Mapped[str] = mapped_column(String(40))
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class SupplyProduct(Base):
+    """Something a supplier sells. Shops connected with them see it."""
+
+    __tablename__ = "supply_products"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    supplier_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80))
+    catalog_code: Mapped[str | None] = mapped_column(String(40))
+    unit: Mapped[str] = mapped_column(String(10))
+    price_paise: Mapped[int | None] = mapped_column(BigInteger)  # per unit
+    available: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # The supplier counts it: at 0, shops see it as not available.
+    counted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    alert_milli: Mapped[int | None] = mapped_column(BigInteger)  # "running low" at or below this
+    client_ref: Mapped[str] = mapped_column(String(40))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SupplyMove(Base):
+    """A supplier's own stock in, out or corrected. Never erased."""
+
+    __tablename__ = "supply_moves"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("supply_products.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(10))
+    # IN and OUT: always positive. ADJUST: + or - (the change to the count).
+    qty_milli: Mapped[int] = mapped_column(BigInteger)
+    note: Mapped[str | None] = mapped_column(String(200))
+    move_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    client_ref: Mapped[str] = mapped_column(String(40))
+
+
+class SupplyPay(Base):
+    """A supplier's own UPI ID, for shops connected with them."""
+
+    __tablename__ = "supply_pay"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    upi_id: Mapped[str | None] = mapped_column(String(60))
+    upi_name: Mapped[str | None] = mapped_column(String(60))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SupplyLink(Base):
+    """A supplier in a shop's list connected with a QBOX Supplier account. The
+    account between them starts at [opening_paise], agreed when connecting."""
+
+    __tablename__ = "supply_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(ForeignKey("suppliers.id", ondelete="CASCADE"))
+    shop_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    supplier_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(10))
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decline_reason: Mapped[str | None] = mapped_column(String(200))
+    opening_paise: Mapped[int | None] = mapped_column(BigInteger)
+    opening_entry_id: Mapped[int | None] = mapped_column(BigInteger)  # the last entry before connecting
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_by_shop: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class SupplierEntry(Base):
@@ -458,6 +565,12 @@ class SupplierEntry(Base):
     method: Mapped[str | None] = mapped_column(String(10))  # payments: cash / UPI / bank
     order_id: Mapped[int | None] = mapped_column(ForeignKey("supplier_orders.id", ondelete="SET NULL"))
     client_ref: Mapped[str] = mapped_column(String(40))
+    # Written while connected: shared with the other side, who answers (see Confirm).
+    by_supplier: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    link_id: Mapped[int | None] = mapped_column(ForeignKey("supply_links.id", ondelete="SET NULL"))
+    confirm: Mapped[str | None] = mapped_column(String(10))
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispute_reason: Mapped[str | None] = mapped_column(String(200))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delete_reason: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -475,10 +588,12 @@ class SupplierEntryLine(Base):
     unit: Mapped[str] = mapped_column(String(10))
     qty_milli: Mapped[int] = mapped_column(BigInteger)
     cost_paise: Mapped[int | None] = mapped_column(BigInteger)  # per unit
+    catalog_code: Mapped[str | None] = mapped_column(String(40))
 
 
 class SupplierOrder(Base):
-    """An order sent to a supplier (by WhatsApp). Received = a purchase."""
+    """An order sent to a supplier (on WhatsApp, or in QBOX when connected).
+    Received = a purchase."""
 
     __tablename__ = "supplier_orders"
     __table_args__ = (
@@ -491,6 +606,14 @@ class SupplierOrder(Base):
     status: Mapped[str] = mapped_column(String(10))
     note: Mapped[str | None] = mapped_column(String(200))
     client_ref: Mapped[str] = mapped_column(String(40))
+    link_id: Mapped[int | None] = mapped_column(ForeignKey("supply_links.id", ondelete="SET NULL"))
+    pay_plan: Mapped[str | None] = mapped_column(String(10))
+    pay_by: Mapped[date | None] = mapped_column(Date)
+    total_paise: Mapped[int | None] = mapped_column(BigInteger)  # the supplier's bill
+    answer_note: Mapped[str | None] = mapped_column(String(200))
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -499,11 +622,16 @@ class SupplierOrderLine(Base):
     __tablename__ = "supplier_order_lines"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    catalog_code: Mapped[str | None] = mapped_column(String(40))
     order_id: Mapped[int] = mapped_column(ForeignKey("supplier_orders.id", ondelete="CASCADE"), index=True)
     item_id: Mapped[int | None] = mapped_column(ForeignKey("stock_items.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(80))
     unit: Mapped[str] = mapped_column(String(10))
     qty_milli: Mapped[int] = mapped_column(BigInteger)
+    cost_paise: Mapped[int | None] = mapped_column(BigInteger)  # the supplier's price per unit
+    # Chosen from the supplier's products.
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("supply_products.id", ondelete="SET NULL"))
+    available: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
 
 class ShopPaymentSettings(Base):

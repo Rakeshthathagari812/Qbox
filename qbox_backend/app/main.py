@@ -25,6 +25,7 @@ from app.notices.router import router as notices_router
 from app.payments.router import router as payments_router
 from app.stock.router import router as stock_router
 from app.suppliers.router import router as suppliers_router
+from app.supply.router import router as supply_router
 from app.udhaar.router import router as udhaar_router
 from app.users.router import router as users_router
 
@@ -67,6 +68,7 @@ app.include_router(language_router)
 app.include_router(payments_router)
 app.include_router(stock_router)
 app.include_router(suppliers_router)
+app.include_router(supply_router)
 app.include_router(customer_router)
 app.include_router(notices_router)
 

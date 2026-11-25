@@ -56,6 +56,18 @@ this PC blocks the small `.exe` launchers (uvicorn.exe, alembic.exe) inside `.ve
 | PUT / DELETE | `/api/me/photo/{role}` | Yes (own photo) |
 | GET | `/api/photos/{ref}` | Yes (own photo, or a shop's) |
 | POST | `/api/me/pin`, `/api/me/logout-all` | Yes (change PIN with the old one; log out everywhere) |
+| POST | `/api/suppliers/otp`, `/{id}/otp`, `/{id}/verify`, `/{id}/disconnect` | Yes, shop (connect by a code sent to the supplier) |
+| GET | `/api/suppliers/{id}/products`, `/{id}/pay` | Yes, shop (a connected supplier's products; their UPI ID) |
+| GET / POST / PUT / DELETE | `/api/supply/products` | Yes, supplier (own products) |
+| GET / PUT / POST | `/api/supply/products/{id}/stock`, `/moves` | Yes, supplier (own stock count) |
+| GET | `/api/supply/report?start&end` | Yes, supplier |
+| GET / PUT | `/api/supply/payments`, `/upi` | Yes, supplier (what shops paid; own UPI ID) |
+| GET | `/api/supply/shops`, `/shops/{id}`, `/orders` | Yes, supplier (own connected shops) |
+| POST | `/api/supply/shops/{id}/accept`, `/decline`, `/end` | Yes, supplier |
+| POST | `/api/supply/entries/{id}/confirm`, `/dispute` | Yes, supplier (what the shop wrote) |
+| POST | `/api/supply/shops/{id}/entries`, `/api/supply/entries/{id}/delete` | Yes, supplier (own entries) |
+| POST | `/api/suppliers/entries/{id}/confirm`, `/dispute` | Yes, shop (what the supplier wrote) |
+| POST | `/api/supply/orders/{id}/accept`, `/reject`, `/dispatch` | Yes, supplier |
 | GET / POST / PUT | `/api/notices`, `/unread`, `/read`, `/off` | Yes (the bell, own news only) |
 | GET / PUT / DELETE | `/api/customer/pages`, `/pages/{ref}` | Yes, customer (checklists and notes; private to them) |
 | POST | `/api/udhaar/mine/{id}/not-me` (and `/cancel`) | Yes, customer (only a report) |
@@ -177,6 +189,9 @@ Control blocks psycopg's `libpq` DLL.
 | Transactions: a customer sees only lines against their own number and payments they made; a QBOX payment shows once | `customer/service.py` |
 | Profile photos: only a plain JPEG is kept (no place or phone details); a shop's is seen by customers, others only by their owner | `users/photos.py` |
 | Changing the PIN needs the old one; wrong tries lock the account like wrong logins | `users/profile.change_pin` |
+| Suppliers: the code's message says what the shop owes; it works only for that supplier and that amount | `suppliers/service._send_code`, `auth/otp.py` |
+| Suppliers: nothing is shared before the supplier agrees; entries from before stay private to the shop | `supply/links.py` |
+| Suppliers: a payment counts once the supplier confirms it; what both agreed cannot be deleted; disconnecting hides nothing already shared | `supply/service.py`, `suppliers/service.py` |
 | The bell only reads; nobody is told about another's book, payments or stock | `notices/service.py` |
 | Checklists and notes: only their owner sees them; a retry counts once; two phones' changes are joined; a deleted one is emptied | `customer/pages.py` |
 | Stock: quantities in thousandths of the unit (1.5 kg = 1500), always the sum of the moves; moves never erased, corrections need a reason | `stock/service.py`, `stock_moves` table |

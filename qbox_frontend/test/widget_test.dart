@@ -280,7 +280,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sri Venkateswara Suppliers'), findsOneWidget);
     expect(find.text('Supplier ID: QBS10001'), findsOneWidget);
-    expect(find.text('New Orders'), findsOneWidget);
+    expect(find.text('Shop Ledger'), findsOneWidget);
     expect(find.text('Ask QBOX AI'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('switch-role')));
