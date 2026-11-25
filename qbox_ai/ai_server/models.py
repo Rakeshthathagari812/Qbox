@@ -54,7 +54,7 @@ class _Translator:
         self.num_beams = num_beams
         self.lock = threading.Lock()
 
-    def translate(self, text: str, source: str, target: str) -> str:
+    def translate(self, text: str, source: str, target: str, fast: bool = False) -> str:
         sentences = indic_text.split_sentences(text)
         if not sentences:
             return ""
@@ -65,7 +65,7 @@ class _Translator:
             # use_cache=False: AI4Bharat's model code predates the cache format of
             # transformers 4.5x; short shop sentences stay fast without it.
             tokens = self.model.generate(**inputs, use_cache=False, min_length=0, max_length=256,
-                                         num_beams=self.num_beams, num_return_sequences=1)
+                                         num_beams=1 if fast else self.num_beams, num_return_sequences=1)
             decoded = self.tokenizer.batch_decode(tokens, skip_special_tokens=True,
                                                   clean_up_tokenization_spaces=True)
         finished = []
@@ -160,10 +160,10 @@ class Models:
                 log.info("Loaded %s", name)
         return model
 
-    def translate(self, text: str, source: str, target: str) -> str:
+    def translate(self, text: str, source: str, target: str, fast: bool = False) -> str:
         direction = translation_direction(source, target)
         text = indic_text.ascii_digits(text)
-        result = self._get(direction).translate(text, source, target)
+        result = self._get(direction).translate(text, source, target, fast)
         if direction == "indic-indic" and indic_text.looks_cut(text, result):
             # Never lose an amount: go through English instead (e.g. Telugu -> English -> Kannada).
             english = self._get("indic-en").translate(text, source, "en")

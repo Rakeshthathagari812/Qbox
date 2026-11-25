@@ -273,10 +273,16 @@ void main() {
 
     setUp(() => api = FakePagesApi());
 
-    Future<void> open(WidgetTester tester, {VoiceInput? voice, FakeDeviceActions? device, PagesStore? store}) =>
+    Future<void> open(
+      WidgetTester tester, {
+      VoiceInput? voice,
+      Speaker? speaker,
+      FakeDeviceActions? device,
+      PagesStore? store,
+    }) =>
         pumpScreen(
           tester,
-          fakeServices(pages: api, pagesStore: store, voice: voice, device: device),
+          fakeServices(pages: api, pagesStore: store, voice: voice, speaker: speaker, device: device),
           ChecklistNotesScreen(now: now),
         );
 
@@ -316,18 +322,33 @@ void main() {
       expect(find.text('Rice, Milk, Onions'), findsOneWidget);
     });
 
-    testWidgets('by voice: check the words, then add', (tester) async {
-      api.keep(list('a', 'Groceries', const []), 1);
-      final voice = FakeVoiceInput()..nextWords = 'sugar 1 kg';
-      await open(tester, voice: voice);
+    testWidgets('by voice: added at once, told aloud, and can be undone', (tester) async {
+      api.keep(list('a', 'Groceries', [item('Milk', done: true)]), 1);
+      final voice = FakeVoiceInput()..nextWords = 'shampoo 5 packets';
+      final speaker = FakeSpeaker();
+      await open(tester, voice: voice, speaker: speaker);
       await tapKey(tester, 'page-a');
+      await tester.enterText(find.byKey(const Key('item-input')), 'half typed');
       await tapKey(tester, 'pages-mic');
-      expect(api.pages['a']!.items, isEmpty);
-      expect(tester.widget<TextField>(find.byKey(const Key('item-input'))).controller!.text, 'sugar 1 kg');
-      voice.nextWords = 'salt';
+      List<String> items() => [for (final i in api.pages['a']!.items) '${i.text} ${i.qty} ${i.done}'];
+      expect(items(), ['Milk  true', 'Shampoo 5 packets false']);
+      expect(find.text('Shampoo 5 packets added successfully'), findsOneWidget);
+      expect(speaker.said.last, 'Shampoo 5 packets added successfully');
+      expect(speaker.locales.last, 'en-IN');
+      // What was being typed is left alone.
+      expect(tester.widget<TextField>(find.byKey(const Key('item-input'))).controller!.text, 'half typed');
+      voice.nextWords = 'shampoo';
       await tapKey(tester, 'pages-mic');
-      await tapKey(tester, 'item-add');
-      expect([for (final i in api.pages['a']!.items) '${i.text} ${i.qty}'], ['Sugar 1 kg', 'Salt ']);
+      expect(speaker.said.last, 'Shampoo is already in the list');
+      voice.nextWords = 'x 12 milk 2 litres';
+      await tapKey(tester, 'pages-mic');
+      expect(items(), ['Milk 2 litres false', 'Shampoo 5 packets false', 'Eggs 12 false']);
+      await tester.tap(find.text('Undo'));
+      await tester.pumpAndSettle();
+      expect(items(), ['Milk  true', 'Shampoo 5 packets false']);
+      voice.nextWords = '?';
+      await tapKey(tester, 'pages-mic');
+      expect(speaker.said.last, 'Could not understand. Say: shampoo 5 packets');
       voice.nextWords = '';
       await tapKey(tester, 'pages-mic');
       expect(find.text('Did not hear anything. Tap the mic and try again.'), findsOneWidget);
@@ -344,9 +365,22 @@ void main() {
       await tapKey(tester, 'pages-voice-lang');
       await tapKey(tester, 'voice-lang-te');
       await tapKey(tester, 'pages-mic');
-      await tapKey(tester, 'item-add');
       expect(voice.lastLocale, 'te_IN');
       expect(find.text('బియ్యం'), findsOneWidget);
+      expect(find.text('బియ్యం విజయవంతంగా చేర్చాను'), findsOneWidget);
+    });
+
+    testWidgets('no voice for the language on the phone: shown, not said; typing stays silent', (tester) async {
+      api.keep(list('a', 'Groceries', const []), 1);
+      final speaker = FakeSpeaker()..missingVoices.add('en-IN');
+      await open(tester, voice: FakeVoiceInput()..nextWords = 'salt 2', speaker: speaker);
+      await tapKey(tester, 'page-a');
+      await tapKey(tester, 'pages-mic');
+      expect(find.text('Salt 2 added successfully'), findsOneWidget);
+      speaker.missingVoices.clear();
+      await enter(tester, 'eggs 12');
+      expect([for (final i in api.pages['a']!.items) '${i.text}|${i.qty}'], ['Salt|2', 'Eggs|12']);
+      expect(speaker.said, isEmpty);
     });
 
     testWidgets('change, remove and undo an item; remove ticked', (tester) async {

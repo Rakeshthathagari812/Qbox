@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../calculator/voice_services.dart';
 import '../udhaar/udhaar_widgets.dart';
 import '../widgets/whatsapp_icon.dart';
 import 'page_models.dart';
 import 'page_widgets.dart';
 import 'pages_repository.dart';
+import 'spoken_items.dart';
 
 /// "3 of 8 done", "All 8 done".
 String doneLabel(QboxPage list) => list.left.isEmpty
@@ -31,6 +35,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> with VoiceWords {
 
   @override
   void dispose() {
+    unawaited(app.speaker.stop());
     _input.dispose();
     _focus.dispose();
     _scroll.dispose();
@@ -55,21 +60,77 @@ class _ChecklistScreenState extends State<ChecklistScreen> with VoiceWords {
     if (already.isNotEmpty) {
       udNotify(context, already.length == 1 ? '${already.single} is already here' : 'Already here: ${already.join(', ')}');
     }
-    if (items.length > list.items.length) {
-      // Show the newest one.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scroll.hasClients) return;
-        final at = (items.length - list.doneCount) * 56.0 - _scroll.position.viewportDimension + 56;
-        _scroll.jumpTo(at.clamp(0, _scroll.position.maxScrollExtent));
-      });
-    }
+    if (items.length > list.items.length) _showNewest(items.length - list.doneCount);
   }
 
-  /// The words go in the box first, to check them; then Add.
+  void _showNewest(int left) => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted || !_scroll.hasClients) return;
+    final at = left * 56.0 - _scroll.position.viewportDimension + 56;
+    _scroll.jumpTo(at.clamp(0, _scroll.position.maxScrollExtent));
+  });
+
+  Future<void> _speak() async {
+    if (!listening) await app.speaker.stop(); // it must not hear itself
+    if (mounted) await speak(_heardWords);
+  }
+
+  Future<void> _sayBack(String text) async {
+    final locale = voiceLang.voiceLocale;
+    if (await app.speaker.hasVoice(locale) && mounted) unawaited(app.speaker.say(text, locale: locale));
+  }
+
+  /// Spoken items are added at once, told aloud, and can be undone.
   void _heardWords(String words) {
-    final before = _input.text.trim();
-    _input.text = before.isEmpty ? words : '$before, $words';
-    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    final list = _pages.page(widget.pageRef);
+    if (list == null) return;
+    final lang = voiceLang;
+    final voice = app.voice;
+    final spoken = readSpokenItems(
+      words,
+      lang,
+      guesses: voice is VoiceGuesses ? (voice as VoiceGuesses).guesses : const [],
+    ).where((i) => i.text.isNotEmpty).toList();
+    if (spoken.isEmpty) {
+      final sorry = notUnderstoodSays(lang);
+      udNotify(context, sorry);
+      unawaited(_sayBack(sorry));
+      return;
+    }
+    final already = <String>[];
+    final items = addItems(list.items, spoken, already: already);
+    if (items.length > maxItems) {
+      udNotify(context, 'A list can have up to $maxItems items.');
+      return;
+    }
+    final before = {for (final i in list.items) i.ref: i};
+    final changed = [
+      for (final i in items)
+        if (before[i.ref] != i) i,
+    ];
+    final message = [
+      if (changed.isNotEmpty) addedSays(changed, lang),
+      if (already.isNotEmpty) alreadySays(already, lang),
+    ].join('. ');
+    unawaited(_sayBack(message));
+    if (changed.isEmpty) {
+      udNotify(context, message);
+      return;
+    }
+    _change((l) => l.copyWith(items: items));
+    final refs = {for (final i in changed) i.ref};
+    notifyUndo(context, message, () {
+      unawaited(app.speaker.stop());
+      // Only what was just said; anything done since stays.
+      _change(
+        (l) => l.copyWith(
+          items: [
+            for (final i in l.items)
+              if (!refs.contains(i.ref)) i else ?before[i.ref],
+          ],
+        ),
+      );
+    });
+    if (items.length > list.items.length) _showNewest(items.length - list.doneCount);
   }
 
   void _tick(PageItem item) => _change(
@@ -284,7 +345,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> with VoiceWords {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        heardBox('Listening… say: rice 2 kg'),
+        heardBox('Listening… say: shampoo 5 packets'),
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
@@ -310,7 +371,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> with VoiceWords {
               ),
             ),
             const SizedBox(width: 8),
-            micButton(() => speak(_heardWords)),
+            micButton(_speak),
             const SizedBox(width: 8),
             IconButton.filled(
               key: const Key('item-add'),

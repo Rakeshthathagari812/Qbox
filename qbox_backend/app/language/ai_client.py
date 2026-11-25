@@ -36,8 +36,8 @@ class AiClient:
         self._health: tuple[float, bool] | None = None
         self._lock = threading.Lock()
 
-    def translate(self, text: str, source: str, target: str) -> str:
-        data = self._post("/translate", {"text": text, "source": source, "target": target})
+    def translate(self, text: str, source: str, target: str, fast: bool = False) -> str:
+        data = self._post("/translate", {"text": text, "source": source, "target": target, "fast": fast})
         translated = data.get("text")
         if not isinstance(translated, str) or not translated.strip():
             raise _failed()

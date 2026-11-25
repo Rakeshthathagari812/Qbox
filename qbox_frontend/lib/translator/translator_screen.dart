@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../calculator/voice_services.dart';
 import '../services/app_services.dart';
@@ -33,14 +34,16 @@ class _Line {
     required this.from,
     required this.to,
     required this.heard,
-    required this.translated,
+    this.translated,
   });
 
   final bool fromLeft;
   final AppLanguage from;
   final AppLanguage to;
   final String heard;
-  final String translated;
+
+  /// Null while it is being translated.
+  final String? translated;
 }
 
 class _TranslatorScreenState extends State<TranslatorScreen> {
@@ -54,6 +57,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   final _scroll = ScrollController();
   bool? _listeningLeft; // null = not listening
   bool _working = false;
+
+  /// The microphone is really open (else it is still getting ready).
+  bool _micOpen = false;
   String _heard = '';
   final Set<AppLanguage> _missingVoices = {};
 
@@ -64,6 +70,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     super.didChangeDependencies();
     if (_services != null) return;
     _services = ServicesScope.of(context);
+    final voice = _app.voice;
+    if (voice is VoiceWarmUp) unawaited((voice as VoiceWarmUp).warmUp(localeId: _left.speechLocale));
     _loadChoices();
   }
 
@@ -112,7 +120,17 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     unawaited(_app.settings.write(_rightKey, _right.code));
   }
 
-  void _notify(String message) => udNotify(context, message);
+  /// Above the mic buttons, so it never covers them.
+  void _notify(String message) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 150),
+      ),
+    );
 
   Future<void> _speak({required bool left}) async {
     if (_listeningLeft != null) {
@@ -121,14 +139,23 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
     if (_working) return;
     final from = left ? _left : _right;
+    // It must not hear itself.
+    await _app.speaker.stop();
+    if (!mounted) return;
     setState(() {
       _listeningLeft = left;
+      _micOpen = false;
       _heard = '';
     });
     String words;
     try {
       words = await _app.voice.listen(
         localeId: from.speechLocale,
+        onReady: () {
+          if (!mounted || _listeningLeft == null) return;
+          HapticFeedback.mediumImpact();
+          setState(() => _micOpen = true);
+        },
         onWords: (w) {
           if (mounted) setState(() => _heard = w);
         },
@@ -146,7 +173,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _notify('Did not hear anything. Tap the mic and speak in ${from.englishName}.');
       return;
     }
-    await _translate(words, fromLeft: left);
+    await _translate(words, fromLeft: left, spoken: true);
   }
 
   Future<void> _type({required bool left}) async {
@@ -159,49 +186,92 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     await _translate(text.trim(), fromLeft: left);
   }
 
-  Future<void> _translate(String words, {required bool fromLeft}) async {
-    final from = fromLeft ? _left : _right;
-    final to = fromLeft ? _right : _left;
+  /// Heard wrongly: correct the words, and it is translated again.
+  Future<void> _correct(int i) async {
+    final line = _lines[i];
+    if (_working || line.translated == null) return;
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => _TypeDialog(language: line.from, text: line.heard),
+    );
+    if (text == null || text.trim().isEmpty || !mounted || i >= _lines.length) return;
+    await _translate(text.trim(), fromLeft: line.fromLeft, from: line.from, to: line.to, at: i);
+  }
+
+  /// What was heard shows at once; its translation follows. [at] = a line being
+  /// corrected.
+  Future<void> _translate(
+    String words, {
+    required bool fromLeft,
+    bool spoken = false,
+    AppLanguage? from,
+    AppLanguage? to,
+    int? at,
+  }) async {
+    final source = from ?? (fromLeft ? _left : _right);
+    final target = to ?? (fromLeft ? _right : _left);
     final translator = _app.translator;
-    setState(() => _working = true);
+    final before = at == null ? null : _lines[at];
+    _Line line([String? translated]) =>
+        _Line(fromLeft: fromLeft, from: source, to: target, heard: words, translated: translated);
+    final waiting = line();
+    setState(() {
+      _working = true;
+      if (at == null) {
+        _lines.add(waiting);
+      } else {
+        _lines[at] = waiting;
+      }
+    });
+    if (at == null) _scrollToEnd();
+    String? text;
     try {
-      String? translated;
+      final input = numbersToDigits(words, source);
+      // Amounts are worth the careful way; the rest of a conversation should be quick.
+      final fast = spoken && !RegExp(r'\d').hasMatch(input);
       try {
-        translated = await translator.translate(numbersToDigits(words, from), from: from, to: to);
+        text = await translator.translate(input, from: source, to: target, fast: fast);
       } on TranslateException catch (e) {
         if (!e.needsPack) {
           if (mounted) _notify(e.message);
           return;
         }
       }
-      if (translated == null) {
+      if (text == null) {
         // Offline and the pack is missing: ask (without a spinner behind the question).
         if (!mounted) return;
         setState(() => _working = false);
-        if (!await ensureLanguagePacks(context, translator, [from, to]) || !mounted) return;
+        if (!await ensureLanguagePacks(context, translator, [source, target]) || !mounted) return;
         setState(() => _working = true);
         try {
-          translated = await translator.translate(numbersToDigits(words, from), from: from, to: to);
+          text = await translator.translate(input, from: source, to: target);
         } on TranslateException catch (e) {
           if (mounted) _notify(e.message);
           return;
         }
       }
-      final text = translated; // always set by here
       if (!mounted) return;
-      setState(() {
-        _lines.add(_Line(
-          fromLeft: fromLeft,
-          from: from,
-          to: to,
-          heard: words,
-          translated: text,
-        ));
-      });
-      _scrollToEnd();
-      await _sayOut(text, to);
+      final i = _lines.indexOf(waiting);
+      if (i < 0) return; // cleared meanwhile
+      final done = text;
+      setState(() => _lines[i] = line(done));
+      if (at == null) _scrollToEnd();
+      await _sayOut(done, target);
     } finally {
-      if (mounted) setState(() => _working = false);
+      if (mounted) {
+        setState(() {
+          _working = false;
+          final i = _lines.indexOf(waiting);
+          if (text == null && i >= 0) {
+            // Not translated: gone, or as it was.
+            if (before == null) {
+              _lines.removeAt(i);
+            } else {
+              _lines[i] = before;
+            }
+          }
+        });
+      }
     }
   }
 
@@ -210,6 +280,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (mounted) setState(() => _missingVoices.add(language));
       return;
     }
+    if (mounted && _missingVoices.contains(language)) setState(() => _missingVoices.remove(language));
+    final volume = await _app.device.mediaVolume();
+    if (volume != null && volume < 10 && mounted) _notify('The phone\'s sound is very low. Turn up the volume to hear it.');
     await _app.speaker.say(text, locale: language.voiceLocale);
   }
 
@@ -280,7 +353,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 key: Key('translator-no-voice-${l.code}'),
                 icon: Icons.volume_off_rounded,
                 text: 'This phone has no ${l.englishName} voice, so QBOX shows the words but cannot say them. '
-                    'Add it in phone Settings → Text-to-speech → Install voice data → ${l.englishName}.',
+                    'Tap Add, then Install voice data → ${l.englishName}.',
+                actionLabel: 'Add',
+                onAction: () async {
+                  if (!await _app.device.openVoiceSettings() && mounted) {
+                    _notify('Open phone Settings > Text-to-speech > Install voice data');
+                  }
+                },
               ),
             Expanded(
               child: _lines.isEmpty
@@ -303,8 +382,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                       itemBuilder: (_, i) => _Bubble(
                         key: Key('translator-line-$i'),
                         line: _lines[i],
-                        onReplay: () => _sayOut(_lines[i].translated, _lines[i].to),
+                        onReplay: () => _sayOut(_lines[i].translated ?? '', _lines[i].to),
                         replayKey: Key('translator-replay-$i'),
+                        onCorrect: () => _correct(i),
+                        correctKey: Key('translator-correct-$i'),
                       ),
                     ),
             ),
@@ -316,8 +397,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(color: udSoft, borderRadius: BorderRadius.circular(14)),
                 child: Text(
-                  _heard.isEmpty
-                      ? 'Listening in ${(_listeningLeft! ? _left : _right).nativeName}…'
+                  !_micOpen
+                      ? 'Getting ready…'
+                      : _heard.isEmpty
+                      ? 'Speak now in ${(_listeningLeft! ? _left : _right).nativeName}'
+                      : _heard == '…'
+                      ? 'Working it out…'
                       : _heard,
                   style: udText(15, weight: FontWeight.w600),
                 ),
@@ -406,11 +491,20 @@ class _LanguagePicker extends StatelessWidget {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.line, required this.onReplay, required this.replayKey, super.key});
+  const _Bubble({
+    required this.line,
+    required this.onReplay,
+    required this.replayKey,
+    required this.onCorrect,
+    required this.correctKey,
+    super.key,
+  });
 
   final _Line line;
   final VoidCallback onReplay;
   final Key replayKey;
+  final VoidCallback onCorrect;
+  final Key correctKey;
 
   @override
   Widget build(BuildContext context) {
@@ -433,16 +527,31 @@ class _Bubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${line.from.nativeName}: ${line.heard}', style: udText(12.5, color: udBody)),
+                  InkWell(
+                    key: correctKey,
+                    onTap: line.translated == null ? null : onCorrect,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 3),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text('${line.from.nativeName}: ${line.heard}', style: udText(12.5, color: udBody)),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.edit_outlined, size: 14, color: udBody),
+                        ],
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text(line.translated, style: udText(17, weight: FontWeight.w700, color: color)),
+                  Text(line.translated ?? '…', style: udText(17, weight: FontWeight.w700, color: color)),
                 ],
               ),
             ),
             IconButton(
               key: replayKey,
               tooltip: 'Say again',
-              onPressed: onReplay,
+              onPressed: line.translated == null ? null : onReplay,
               icon: Icon(Icons.volume_up_rounded, color: color),
             ),
           ],
@@ -484,11 +593,10 @@ class _MicButton extends StatelessWidget {
           child: FilledButton.icon(
             key: micKey,
             onPressed: enabled || listening ? onMic : null,
-            icon: Icon(listening ? Icons.stop_rounded : Icons.mic_rounded, size: 26),
-            label: Text(
-              listening ? 'Stop' : language.nativeName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            icon: Icon(listening ? Icons.graphic_eq_rounded : Icons.mic_rounded, size: 26),
+            label: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(listening ? 'Listening…' : language.nativeName, maxLines: 1),
             ),
             style: FilledButton.styleFrom(
               backgroundColor: shown,
@@ -509,16 +617,17 @@ class _MicButton extends StatelessWidget {
 }
 
 class _TypeDialog extends StatefulWidget {
-  const _TypeDialog({required this.language});
+  const _TypeDialog({required this.language, this.text = ''});
 
   final AppLanguage language;
+  final String text;
 
   @override
   State<_TypeDialog> createState() => _TypeDialogState();
 }
 
 class _TypeDialogState extends State<_TypeDialog> {
-  final _text = TextEditingController();
+  late final _text = TextEditingController(text: widget.text);
 
   @override
   void dispose() {

@@ -231,7 +231,7 @@ class _ItemScreenState extends State<ItemScreen> {
         key: Key(key),
         onPressed: onTap,
         icon: Icon(icon, size: 20),
-        label: Text(label, maxLines: 1),
+        label: FittedBox(fit: BoxFit.scaleDown, child: Text(label, maxLines: 1)),
         style: FilledButton.styleFrom(
           backgroundColor: color,
           padding: const EdgeInsets.symmetric(horizontal: 6),

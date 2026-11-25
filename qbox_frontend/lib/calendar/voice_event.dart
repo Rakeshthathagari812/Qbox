@@ -11,6 +11,7 @@
 library;
 
 import 'calendar_models.dart';
+import 'spoken_time.dart';
 
 const _weekdays = {
   'monday': 1,
@@ -126,6 +127,7 @@ EventDraft? parseSpokenEvent(
   String spoken,
   DateTime now, {
   EventCategory defaultCategory = EventCategory.other,
+  SpokenTime? spokenTime,
 }) {
   var text = ' ${_normalise(spoken)} ';
   if (text.trim().isEmpty) return null;
@@ -133,6 +135,8 @@ EventDraft? parseSpokenEvent(
   final today = DateTime(now.year, now.month, now.day);
   DateTime? day;
   int? minute;
+  var guessed = false;
+  var soon = false; // "in 10 minutes"
   var repeat = Repeat.none;
 
   String take(RegExp pattern, void Function(RegExpMatch m) use) {
@@ -186,19 +190,31 @@ EventDraft? parseSpokenEvent(
   );
 
   // ---- "in 2 hours", "in 30 minutes", "in 3 days" ----
+  void after(int minutes) {
+    final at = now.add(Duration(minutes: minutes));
+    day = DateTime(at.year, at.month, at.day);
+    minute = at.hour * 60 + at.minute;
+    soon = true;
+  }
+
+  text = take(
+    RegExp(r'\b(?:in|after) (\d+|an?|one|two|three|four|five|six) hours?(?: and)? (\d+|five|ten|half|a half) ?(?:minutes?|mins?)?\b'),
+    (m) {
+      final hours = int.tryParse(m[1]!) ?? _smallNumbers[m[1]] ?? 1;
+      final extra = m[2]!.endsWith('half') ? 30 : int.tryParse(m[2]!) ?? _smallNumbers[m[2]] ?? 0;
+      after(hours * 60 + extra);
+    },
+  );
+  text = take(RegExp(r'\b(?:in|after) half an hour\b'), (_) => after(30));
   text = take(
     RegExp(
-      r'\bin (\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten) (minute|minutes|min|mins|hour|hours|day|days|week|weeks)\b',
+      r'\b(?:in|after) (\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten) (minute|minutes|min|mins|hour|hours|day|days|week|weeks)\b',
     ),
     (m) {
       final n = int.tryParse(m[1]!) ?? _smallNumbers[m[1]] ?? 1;
       final unit = m[2]!;
       if (unit.startsWith('min') || unit.startsWith('hour')) {
-        final at = now.add(
-          Duration(minutes: unit.startsWith('hour') ? n * 60 : n),
-        );
-        day = DateTime(at.year, at.month, at.day);
-        minute = at.hour * 60 + at.minute;
+        after(unit.startsWith('hour') ? n * 60 : n);
       } else {
         day = today.add(Duration(days: unit.startsWith('week') ? n * 7 : n));
       }
@@ -252,7 +268,7 @@ EventDraft? parseSpokenEvent(
     (m) => day ??= _nextWeekday(today, _weekdays[m[1]]!, allowToday: false),
   );
   // "on the 25th", "on 5"
-  text = take(RegExp(r'\bon(?: the)? (\d{1,2})\b(?! ?(?:am|pm|oclock|:))'), (
+  text = take(RegExp(r'\bon(?: the)? (\d{1,2})\b(?! ?(?:am|pm|oclock|:|\d))'), (
     m,
   ) {
     final dom = int.parse(m[1]!);
@@ -260,39 +276,13 @@ EventDraft? parseSpokenEvent(
   });
 
   // ---- times ----
-  final hourWords = _smallNumbers.keys
-      .where((k) => k != 'a' && k != 'an')
-      .join('|');
-  final daypartPattern = r'(?: (?:in the )?(morning|afternoon|evening|night))?';
-  text = take(
-    RegExp('\\b(?:at )?(\\d{1,2})[:.](\\d{2}) ?(am|pm)?$daypartPattern\\b'),
-    (m) => minute = _clock(int.parse(m[1]!), int.parse(m[2]!), m[3], m[4]),
-  );
-  text = take(
-    RegExp(
-      '\\b(?:at )?(\\d{1,2}|$hourWords) ?(am|pm|oclock)$daypartPattern\\b',
-    ),
-    (m) {
-      final h = int.tryParse(m[1]!) ?? _smallNumbers[m[1]]!;
-      minute = _clock(h, 0, m[2] == 'oclock' ? null : m[2], m[3]);
-    },
-  );
-  text = take(RegExp('\\bat (\\d{1,2}|$hourWords)$daypartPattern\\b'), (m) {
-    final h = int.tryParse(m[1]!) ?? _smallNumbers[m[1]]!;
-    if (h >= 0 && h <= 23) minute = _clock(h, 0, null, m[2]);
-  });
-  text = take(RegExp(r'\b(?:at )?noon\b'), (_) => minute = 12 * 60);
-  text = take(RegExp(r'\b(?:at )?midnight\b'), (_) => minute = 0);
-  text = take(RegExp(r'\b(?:in the )?(morning|afternoon|evening|night)\b'), (
-    m,
-  ) {
-    minute ??= switch (m[1]) {
-      'morning' => 9 * 60,
-      'afternoon' => 14 * 60,
-      'evening' => 18 * 60,
-      _ => 20 * 60,
-    };
-  });
+  final english = takeEnglishTime(text);
+  text = english.rest;
+  final clock = spokenTime ?? english.time;
+  if (clock != null && (minute == null || clock.sure)) {
+    minute = clock.minute;
+    guessed = !clock.sure;
+  }
 
   // ---- what is left is the title ----
   var title = text
@@ -310,7 +300,19 @@ EventDraft? parseSpokenEvent(
   if (title.isEmpty) title = 'Reminder';
   title = title[0].toUpperCase() + title.substring(1);
 
-  final eventDay = day ?? today;
+  var eventDay = day ?? today;
+  // "at 9", said at 5 in the evening, is 9 tonight; "at 3:10 pm" is tomorrow.
+  final saidToday = day != null && day == today;
+  if ((day == null || saidToday) && minute != null && repeat == Repeat.none && !soon) {
+    final nowMinute = now.hour * 60 + now.minute;
+    if (minute! <= nowMinute) {
+      if (guessed && minute! < 12 * 60 && minute! + 12 * 60 > nowMinute) {
+        minute = minute! + 12 * 60;
+      } else if (!saidToday) {
+        eventDay = DateTime(today.year, today.month, today.day + 1);
+      }
+    }
+  }
   return EventDraft(
     title: title.length > 120 ? title.substring(0, 120) : title,
     day: eventDay,
@@ -331,27 +333,6 @@ String _normalise(String spoken) {
   t = t.replaceAll(RegExp(r'[,!?;"]'), ' ');
   t = t.replaceAll(RegExp(r'\.(?!\d)'), ' '); // keep "10.30", drop full stops
   return t.replaceAll(RegExp(r'\s+'), ' ').trim();
-}
-
-/// Hour and minute to minutes after midnight, using am/pm or the part of day.
-/// Without either, shop hours are assumed: 7-11 morning, 12-6 afternoon/evening.
-int? _clock(int hour, int minute, String? ampm, String? daypart) {
-  if (hour > 23 || minute > 59) return null;
-  var h = hour;
-  final pm =
-      ampm == 'pm' ||
-      (ampm == null &&
-          (daypart == 'afternoon' ||
-              daypart == 'evening' ||
-              daypart == 'night'));
-  final am = ampm == 'am' || (ampm == null && daypart == 'morning');
-  if (pm && h < 12) h += 12;
-  if (am && h == 12) h = 0;
-  if (!pm && !am && hour <= 12) {
-    if (hour >= 1 && hour <= 6) h += 12; // "at 5" in a shop means 5 PM
-  }
-  if (daypart == 'night' && hour == 12) h = 0;
-  return h * 60 + minute;
 }
 
 DateTime _nextWeekday(DateTime today, int weekday, {required bool allowToday}) {

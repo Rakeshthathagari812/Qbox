@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/qbox_user.dart';
 import '../onboarding_draft.dart';
 import 'calendar_models.dart';
+import 'calendar_repository.dart' show CalendarChange;
 
 /// A copy of the calendar on the phone, so it still opens without internet.
 /// The server is the real record; this copy is replaced after every sync.
@@ -17,6 +18,11 @@ abstract class CalendarStore {
   Future<List<Festival>?> loadFestivals();
 
   Future<void> saveFestivals(List<Festival> festivals);
+
+  /// Changes made without internet, oldest first.
+  Future<List<CalendarChange>> loadChanges();
+
+  Future<void> saveChanges(List<CalendarChange> changes);
 
   Future<void> clear();
 }
@@ -53,6 +59,18 @@ class PrefsCalendarStore implements CalendarStore {
     );
   }
 
+  static const _changesKey = '${_prefix}changes';
+
+  @override
+  Future<List<CalendarChange>> loadChanges() async =>
+      List.of(await _load(_changesKey, CalendarChange.fromJson) ?? const []);
+
+  @override
+  Future<void> saveChanges(List<CalendarChange> changes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_changesKey, jsonEncode([for (final c in changes) c.toJson()]));
+  }
+
   @override
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
@@ -79,6 +97,7 @@ class PrefsCalendarStore implements CalendarStore {
 class MemoryCalendarStore implements CalendarStore {
   final Map<QboxRole, List<CalendarEvent>> events = {};
   List<Festival>? festivals;
+  List<CalendarChange> changes = [];
 
   @override
   Future<List<CalendarEvent>?> loadEvents(QboxRole role) async => events[role];
@@ -95,8 +114,15 @@ class MemoryCalendarStore implements CalendarStore {
       festivals = List.of(list);
 
   @override
+  Future<List<CalendarChange>> loadChanges() async => List.of(changes);
+
+  @override
+  Future<void> saveChanges(List<CalendarChange> list) async => changes = List.of(list);
+
+  @override
   Future<void> clear() async {
     events.clear();
+    changes = [];
     festivals = null;
   }
 }

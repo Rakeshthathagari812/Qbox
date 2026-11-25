@@ -3,7 +3,8 @@ import 'api_client.dart';
 /// Online speech and translation through the QBOX server, which runs AI4Bharat
 /// IndicConformer and IndicTrans2 itself. Needs login and internet.
 abstract class LanguageApi {
-  Future<String> translate(String text, {required String from, required String to});
+  /// [fast]: a quick answer matters more than fine wording (spoken commands).
+  Future<String> translate(String text, {required String from, required String to, bool fast = false});
 
   /// Words in a 16 kHz mono WAV recording (base64). Empty = nothing heard.
   Future<String> speechToText(String wavBase64, {required String language, int samplingRate = 16000});
@@ -21,10 +22,10 @@ class HttpLanguageApi implements LanguageApi {
   static const _aiTimeout = Duration(seconds: 30);
 
   @override
-  Future<String> translate(String text, {required String from, required String to}) async {
+  Future<String> translate(String text, {required String from, required String to, bool fast = false}) async {
     final json = await _api.post(
       '/api/language/translate',
-      {'text': text, 'source': from, 'target': to},
+      {'text': text, 'source': from, 'target': to, 'fast': fast},
       timeout: _aiTimeout,
     );
     final out = json is Map<String, dynamic> ? json['text'] : null;
@@ -48,7 +49,7 @@ class HttpLanguageApi implements LanguageApi {
   @override
   Future<bool> isOnline() async {
     try {
-      final json = await _api.get('/api/language/status', timeout: const Duration(seconds: 3));
+      final json = await _api.get('/api/language/status', timeout: const Duration(milliseconds: 1500));
       return json is Map<String, dynamic> && json['online'] == true;
     } on ApiException {
       return false;

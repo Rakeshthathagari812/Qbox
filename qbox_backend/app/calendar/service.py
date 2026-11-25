@@ -2,6 +2,7 @@
 so nobody can see or change another person's calendar."""
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.calendar.schemas import EventIn, EventOut, FestivalOut
@@ -23,6 +24,9 @@ def list_events(db: Session, user: User, role: Role) -> list[EventOut]:
 
 def create_event(db: Session, user: User, body: EventIn) -> EventOut:
     _require_role(user, body.role)
+    existing = _by_ref(db, user, body)
+    if existing is not None:
+        return _out(existing)
     count = db.scalar(
         select(func.count())
         .select_from(CalendarEvent)
@@ -31,11 +35,28 @@ def create_event(db: Session, user: User, body: EventIn) -> EventOut:
     if count >= MAX_EVENTS_PER_CALENDAR:
         raise ApiError(400, "TOO_MANY_EVENTS",
                        f"A calendar can hold up to {MAX_EVENTS_PER_CALENDAR} events. Delete old ones first")
-    event = CalendarEvent(user_id=user.id, role=body.role.value)
+    event = CalendarEvent(user_id=user.id, role=body.role.value, client_ref=body.client_ref)
     _apply(event, body)
     db.add(event)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # the same event arrived twice at the same moment
+        db.rollback()
+        existing = _by_ref(db, user, body)
+        if existing is None:
+            raise ApiError(409, "TRY_AGAIN", "Please try again") from None
+        return _out(existing)
     return _out(event)
+
+
+def _by_ref(db: Session, user: User, body: EventIn) -> CalendarEvent | None:
+    if body.client_ref is None:
+        return None
+    return db.scalars(
+        select(CalendarEvent).where(
+            CalendarEvent.user_id == user.id, CalendarEvent.client_ref == body.client_ref
+        )
+    ).first()
 
 
 def update_event(db: Session, user: User, event_id: int, body: EventIn) -> EventOut:

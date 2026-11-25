@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # Shared secret: must be the same as QBOX_AI_KEY in qbox_ai/.env. Change it when going live.
     ai_key: str = DEV_AI_KEY
     # Speech + translation requests one person may make per day (protects the AI server).
-    language_daily_limit: int = 300
+    language_daily_limit: int = 600  # a spoken command may ask twice
 
     @property
     def ai_on(self) -> bool:

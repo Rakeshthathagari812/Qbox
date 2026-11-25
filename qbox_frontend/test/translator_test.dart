@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qbox_app/calculator/calculator_screen.dart';
+import 'package:qbox_app/calculator/voice_services.dart';
 import 'package:qbox_app/calendar/calendar_screen.dart';
 import 'package:qbox_app/onboarding_draft.dart';
 import 'package:qbox_app/services/api_client.dart';
@@ -15,6 +18,7 @@ import 'package:qbox_app/udhaar/udhaar_models.dart';
 import 'package:qbox_app/udhaar/udhaar_screen.dart';
 import 'package:qbox_app/udhaar/voice_udhaar.dart';
 
+import 'calculator_screen_test.dart' show HeldVoice;
 import 'fake_auth_api.dart';
 
 Future<void> pump(WidgetTester tester, AppServices services, Widget screen) async {
@@ -186,6 +190,94 @@ void main() {
     });
   });
 
+  group('the server hears while one speaks', () {
+    test('the answer is asked for at the first quiet, so it is ready at the end', () async {
+      final mic = FakeMic();
+      final api = FakeLanguageApi();
+      final words = <String>[];
+      var ready = 0;
+      final result = IndicVoiceInput(api, mic: mic).listen(
+        onWords: words.add,
+        localeId: 'te_IN',
+        pace: const VoicePace(serverPause: Duration(milliseconds: 1000)),
+        onReady: () => ready++,
+      );
+      await mic.opened.future;
+      await mic.play(60, 5);
+      await mic.play(9000, 15, voice: true);
+      expect(api.heardClips, 0);
+      await mic.play(60, 6); // 0.6 s quiet: asked already
+      expect(api.heardClips, 1);
+      await mic.play(60, 8);
+      expect(await result, api.speechText);
+      expect((api.heardClips, ready, mic.stopped), (1, 1, true));
+      expect(words, ['…', api.speechText]);
+    });
+
+    test('they went on speaking: asked again with all of it', () async {
+      final mic = FakeMic();
+      final api = FakeLanguageApi();
+      final result = IndicVoiceInput(api, mic: mic).listen(onWords: (_) {}, localeId: 'te_IN');
+      await mic.opened.future;
+      await mic.play(60, 5);
+      await mic.play(9000, 10, voice: true);
+      await mic.play(60, 7);
+      await mic.play(9000, 10, voice: true);
+      await mic.play(60, 16);
+      await result;
+      expect(api.heardClips, 2);
+      expect(api.lastClip, greaterThan(16000 * 2 * 3)); // more than 3 s of sound
+    });
+
+    test('nothing said: the server is not asked', () async {
+      final mic = FakeMic();
+      final api = FakeLanguageApi();
+      final result = IndicVoiceInput(api, mic: mic).listen(onWords: (_) {}, localeId: 'te_IN');
+      await mic.opened.future;
+      await mic.play(60, 85);
+      expect(await result, '');
+      expect(api.heardClips, 0);
+    });
+
+    test('tapped Stop early: what was said counts', () async {
+      final mic = FakeMic();
+      final api = FakeLanguageApi();
+      final voice = IndicVoiceInput(api, mic: mic);
+      final result = voice.listen(onWords: (_) {}, localeId: 'te_IN');
+      await mic.opened.future;
+      await mic.play(60, 5);
+      await mic.play(9000, 10, voice: true);
+      await voice.stop();
+      expect(await result, api.speechText);
+    });
+
+    test('a wav file is made as the server reads it', () {
+      final wav = wavOf(Uint8List(320), 16000);
+      expect(wav.length, 364);
+      expect(String.fromCharCodes(wav.sublist(0, 4)), 'RIFF');
+      expect(loudness(Uint8List(320), 0, 320), -160);
+    });
+
+    test('the server was up a little while ago: no waiting to ask again', () async {
+      var now = DateTime(2026, 11, 25, 10);
+      final api = FakeLanguageApi();
+      final server = FakeVoiceInput()..nextWords = 'server';
+      final voice = SmartVoiceInput(phone: FakeVoiceInput(), server: server, language: api, clock: () => now);
+      await voice.warmUp(localeId: 'te_IN');
+      now = now.add(const Duration(minutes: 2));
+      expect(await voice.listen(onWords: (_) {}, localeId: 'te_IN'), 'server');
+    });
+
+    test('spoken commands are translated fast', () async {
+      final api = FakeLanguageApi();
+      final smart = SmartTextTranslator(online: api, offline: FakeTranslator());
+      await smart.translate('a', from: AppLanguage.telugu, to: AppLanguage.english, fast: true);
+      expect(api.lastFast, isTrue);
+      await smart.translate('a', from: AppLanguage.telugu, to: AppLanguage.english);
+      expect(api.lastFast, isFalse);
+    });
+  });
+
   group('knowing when someone has finished speaking', () {
     Duration ms(int n) => Duration(milliseconds: n);
 
@@ -206,7 +298,7 @@ void main() {
       expect(feed(-55, 10), isFalse); // a short pause between words is fine
       expect(feed(-20, 5), isFalse);
       expect(feed(-55, 20), isTrue); // done
-      expect(t, 3500 + 1500); // 1.5 s after the last word
+      expect(t, 3500 + 1200); // just over 1.1 s after the last word
     });
 
     test('noisy shop: the noise is not taken as speech, clear speech is', () {
@@ -223,6 +315,65 @@ void main() {
         ear.hear(-12, ms(t)); // speaking over it
       }
       expect(ear.heardSpeech, isTrue);
+    });
+
+    /// Feeds one loudness after another; the time it stopped, or null.
+    int? stopsAt(SpeechEnd ear, Iterable<double> levels) {
+      var t = 0;
+      for (final db in levels) {
+        t += 100;
+        if (ear.hear(db, ms(t))) return t;
+      }
+      return null;
+    }
+
+    List<double> flat(double db, int times) => [for (var i = 0; i < times; i++) db + (i.isEven ? 1 : -1)];
+    // A voice: up and down, with gaps.
+    List<double> voice(double db, int times) => [for (var i = 0; i < times; i++) db - const [0, 4, 9, 2, 14, 1][i % 6]];
+    const opening = [-160.0, -160.0];
+
+    test('the microphone opening (no sound yet) is not taken as the quiet of the room', () {
+      // It used to go on for 25 s here: the room itself was "speech".
+      for (final room in [-58.0, -46.0, -40.0, -34.0]) {
+        final ear = SpeechEnd(quietAfterSpeech: ms(1300));
+        final at = stopsAt(ear, [...opening, ...flat(room, 8), ...voice(-12, 20), ...flat(room, 60)]);
+        expect(at, inInclusiveRange(3000 + 1000, 3000 + 1900), reason: 'room $room');
+      }
+      final nobody = SpeechEnd(waitForSpeech: ms(8000));
+      expect(stopsAt(nobody, [...opening, ...flat(-40, 100)]), 8100);
+      expect(nobody.heardSpeech, isFalse);
+    });
+
+    test('speaking at once, and a phone that makes the room louder afterwards', () {
+      expect(
+        stopsAt(SpeechEnd(quietAfterSpeech: ms(1300)), [...opening, ...voice(-14, 20), ...flat(-45, 60)]),
+        inInclusiveRange(3000, 4200),
+      );
+      expect(
+        stopsAt(SpeechEnd(quietAfterSpeech: ms(1300)), [
+          ...opening,
+          ...flat(-55, 5),
+          ...voice(-14, 20),
+          for (var i = 0; i < 10; i++) -50 + i * 2.0, // turning itself up
+          ...flat(-32, 60),
+        ]),
+        inInclusiveRange(3500, 6500),
+      );
+    });
+
+    test('a pause between words does not cut the sum', () {
+      final ear = SpeechEnd(quietAfterSpeech: ms(1300));
+      final at = stopsAt(ear, [...opening, ...flat(-42, 5), ...voice(-15, 8), ...flat(-42, 10), ...voice(-15, 8), ...flat(-42, 50)]);
+      expect(at, greaterThan(3300 + 1000));
+    });
+
+    test('a soft voice, and a voice in a noisy shop', () {
+      for (final (room, speech) in [(-58.0, -30.0), (-32.0, -8.0)]) {
+        final ear = SpeechEnd(quietAfterSpeech: ms(1300));
+        final at = stopsAt(ear, [...opening, ...flat(room, 8), ...voice(speech, 24), ...flat(room, 60)]);
+        expect(ear.heardSpeech, isTrue);
+        expect(at, inInclusiveRange(3400 + 900, 3400 + 2000), reason: '$room $speech');
+      }
     });
 
     test('a single click is not speech; nothing said = gives up', () {
@@ -331,6 +482,60 @@ void main() {
       expect(find.byKey(const Key('translator-no-voice-ta')), findsOneWidget);
     });
 
+    testWidgets('it stops talking before it listens, and says when the mic is open', (tester) async {
+      final voice = HeldVoice();
+      final speaker = FakeSpeaker();
+      await pump(tester, fakeServices(voice: voice, speaker: speaker), const TranslatorScreen());
+      final before = speaker.stops;
+      await tester.tap(find.byKey(const Key('translator-mic-left')));
+      await tester.pump();
+      expect(speaker.stops, before + 1);
+      expect(find.text('Getting ready…'), findsOneWidget);
+      voice.ready!();
+      await tester.pump();
+      expect(find.text('Speak now in తెలుగు'), findsOneWidget);
+      expect(find.text('Listening…'), findsOneWidget);
+      voice.words('ఎంత?');
+      voice.finish();
+      await tester.pumpAndSettle();
+      expect(find.text('[hi] ఎంత?'), findsOneWidget);
+    });
+
+    testWidgets('heard wrongly: corrected, and translated again in the same place', (tester) async {
+      final voice = FakeVoiceInput()..nextWords = 'పాలు';
+      final speaker = FakeSpeaker();
+      await pump(tester, fakeServices(voice: voice, speaker: speaker), const TranslatorScreen());
+      await tapKey(tester, 'translator-mic-left');
+      await tapKey(tester, 'translator-correct-0');
+      expect(find.text('పాలు'), findsOneWidget); // ready to correct
+      await tester.enterText(find.byKey(const Key('translator-type-text')), 'పాలు ఉన్నాయా?');
+      await tapKey(tester, 'translator-type-go');
+      expect(find.text('తెలుగు: పాలు ఉన్నాయా?'), findsOneWidget);
+      expect(find.text('తెలుగు: పాలు'), findsNothing);
+      expect(speaker.said.last, '[hi] పాలు ఉన్నాయా?');
+    });
+
+    testWidgets('sound turned down, or no voice: it says what to do', (tester) async {
+      final device = FakeDeviceActions()..volume = 0;
+      final speaker = FakeSpeaker()..missingVoices.add('te-IN');
+      final voice = FakeVoiceInput()..nextWords = 'hello';
+      await pump(tester, fakeServices(voice: voice, speaker: speaker, device: device), const TranslatorScreen());
+      await tapKey(tester, 'translator-mic-left'); // to Hindi
+      expect(find.textContaining('Turn up the volume'), findsOneWidget);
+      await tapKey(tester, 'translator-mic-right'); // to Telugu
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(device.voiceSettingsOpened, 1);
+    });
+
+    testWidgets('not translated: the line goes away', (tester) async {
+      final translator = FakeTranslator()..error = const TranslateException('Could not translate. Please try again.');
+      await pump(tester, fakeServices(voice: FakeVoiceInput()..nextWords = 'a', translator: translator), const TranslatorScreen());
+      await tapKey(tester, 'translator-mic-left');
+      expect(find.byKey(const Key('translator-line-0')), findsNothing);
+      expect(find.text('Could not translate. Please try again.'), findsOneWidget);
+    });
+
     testWidgets('typing instead of speaking', (tester) async {
       final speaker = FakeSpeaker();
       await pump(tester, fakeServices(speaker: speaker), const TranslatorScreen());
@@ -402,7 +607,7 @@ void main() {
   });
 
   group('calculator in other languages', () {
-    testWidgets('Telugu sum: translated, worked out, answer said in Telugu', (tester) async {
+    testWidgets('Telugu sum: translated, worked out, the whole sum said in Telugu', (tester) async {
       final voice = FakeVoiceInput()..nextWords = 'రెండు వందల యాభై ప్లస్ నూట ఎనభై';
       final speaker = FakeSpeaker();
       final translator = FakeTranslator()
@@ -416,7 +621,7 @@ void main() {
       await tapKey(tester, 'calc-mic');
       expect(voice.lastLocale, 'te_IN');
       expect(find.text('430'), findsWidgets);
-      expect(speaker.said, ['430']);
+      expect(speaker.said, ['250 ప్లస్ 180 సమానం 430']);
       expect(speaker.locales, ['te-IN']);
     });
 
@@ -469,4 +674,34 @@ void main() {
       expect(api.saved[QboxRole.business]!.single.minuteOfDay, 600);
     });
   });
+}
+
+/// A pretend microphone: 100 ms of sound at a time.
+class FakeMic implements MicStream {
+  final opened = Completer<void>();
+  final _sound = StreamController<Uint8List>();
+  bool stopped = false;
+
+  @override
+  Future<bool> hasPermission() async => true;
+
+  @override
+  Future<Stream<Uint8List>> start() async {
+    Future(opened.complete);
+    return _sound.stream;
+  }
+
+  @override
+  Future<void> stop() async => stopped = true;
+
+  /// [frames] x 100 ms, as loud as [peak]; a [voice] goes up and down.
+  Future<void> play(int peak, int frames, {bool voice = false}) async {
+    const parts = [1.0, 0.6, 0.3, 0.8, 0.15, 0.9];
+    for (var i = 0; i < frames; i++) {
+      final data = ByteData(3200);
+      data.setInt16(100, (voice ? peak * parts[i % 6] : peak).round(), Endian.little);
+      if (!_sound.isClosed) _sound.add(data.buffer.asUint8List());
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
 }

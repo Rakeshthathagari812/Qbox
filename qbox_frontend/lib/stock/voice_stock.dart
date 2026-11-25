@@ -11,9 +11,11 @@
 library;
 
 import '../calculator/voice_math.dart';
+import '../translator/english_numbers.dart';
 import '../translator/indic_numbers.dart';
 import '../translator/languages.dart';
 import '../translator/transliterate.dart';
+import 'heard_items.dart';
 import 'stock_catalog.dart';
 import 'stock_models.dart';
 
@@ -53,7 +55,7 @@ class SpokenStock {
 }
 
 SpokenStock? parseSpokenStock(String words, AppLanguage language, List<StockItem> items) {
-  final text = _prepare(numbersToDigits(words, language));
+  final text = _prepare(fixHeard(englishNumberWords(numbersToDigits(words, language))));
   if (text.trim().isEmpty) return null;
   final tokens = text.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
 
@@ -135,7 +137,7 @@ MoveKind? _kindIn(List<String> tokens) {
 /// script count when heard as they are; every name also counts when all its
 /// words are heard in English letters (allowing one wrong letter).
 int _score(String text, List<String> names) {
-  final heardLatin = _latinWords(text);
+  final heardLatin = latinWords(text);
   var best = 0;
   for (final name in names) {
     final lower = name.toLowerCase();
@@ -143,9 +145,9 @@ int _score(String text, List<String> names) {
       best = best > lower.length * 2 ? best : lower.length * 2;
       continue;
     }
-    final words = _latinWords(lower).where((w) => w.length >= 2 && !_ignore.contains(w)).toList();
+    final words = latinWords(lower).where((w) => w.length >= 2 && !_ignore.contains(w)).toList();
     if (words.isEmpty) continue;
-    final allHeard = words.every((w) => heardLatin.any((h) => h == w || (w.length >= 4 && h.length >= 4 && _close(h, w))));
+    final allHeard = words.every((w) => heardLatin.any((h) => h == w || (w.length >= 4 && h.length >= 4 && soundsClose(h, w))));
     if (allHeard) {
       final s = words.fold(0, (sum, w) => sum + w.length);
       if (s > best) best = s;
@@ -156,7 +158,7 @@ int _score(String text, List<String> names) {
 
 /// Words in English letters, with long vowels made short (so "biyyaam",
 /// "biyyam" and "biyam" agree).
-List<String> _latinWords(String text) => transliterate(text)
+List<String> latinWords(String text) => transliterate(text)
     .toLowerCase()
     .replaceAll(RegExp(r'[^a-z0-9\s]'), ' ')
     .replaceAll(RegExp(r'aa+'), 'a')
@@ -168,7 +170,7 @@ List<String> _latinWords(String text) => transliterate(text)
     .toList();
 
 /// [a] and [b] differ by at most one letter (added, removed or changed).
-bool _close(String a, String b) {
+bool soundsClose(String a, String b) {
   if ((a.length - b.length).abs() > 1) return false;
   var i = 0;
   var j = 0;

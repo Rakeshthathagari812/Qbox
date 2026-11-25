@@ -92,6 +92,7 @@ Future<String?> voiceToEnglish(
     from: language,
     to: AppLanguage.english,
     onError: onError,
+    fast: true,
   );
 }
 
@@ -104,9 +105,10 @@ Future<String?> translateWithPacks(
   required AppLanguage from,
   required AppLanguage to,
   required void Function(String message) onError,
+  bool fast = false,
 }) async {
   try {
-    return await translator.translate(text, from: from, to: to);
+    return await translator.translate(text, from: from, to: to, fast: fast);
   } on TranslateException catch (e) {
     if (!e.needsPack || !context.mounted) {
       onError(e.message);
@@ -115,7 +117,7 @@ Future<String?> translateWithPacks(
   }
   if (!await ensureLanguagePacks(context, translator, [from, to])) return null;
   try {
-    return await translator.translate(text, from: from, to: to);
+    return await translator.translate(text, from: from, to: to, fast: fast);
   } on TranslateException catch (e) {
     onError(e.message);
     return null;

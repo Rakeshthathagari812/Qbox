@@ -78,6 +78,18 @@ const _operatorWords = {
   '/': divide,
 };
 
+/// "plus 10", "into 3": does it carry on from the answer before?
+bool startsWithOperator(String spoken) {
+  final words = _words(spoken);
+  return words.length > 1 && _operatorWords.containsKey(words.first);
+}
+
+/// "20 plus", "18 percent of": must more follow?
+bool endsWithOperator(String spoken) {
+  final words = _words(spoken);
+  return words.length > 1 && (words.last == 'of' || _operatorWords.containsKey(words.last));
+}
+
 String? parseSpokenMath(String spoken) {
   final words = _words(spoken);
   final parts = <Object>[]; // double (number), String (operator) or percent

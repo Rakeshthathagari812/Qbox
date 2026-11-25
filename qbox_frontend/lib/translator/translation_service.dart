@@ -25,7 +25,8 @@ abstract class TextTranslator {
   /// Downloads the language pack (one time, about 30 MB). True if done.
   Future<bool> download(AppLanguage language);
 
-  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to});
+  /// [fast]: a quick answer matters more than fine wording (spoken commands).
+  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to, bool fast = false});
 }
 
 /// Google ML Kit: translation runs on the phone itself. Free, works without
@@ -62,7 +63,7 @@ class OnDeviceTextTranslator implements TextTranslator {
   }
 
   @override
-  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to}) async {
+  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to, bool fast = false}) async {
     if (from == to || text.trim().isEmpty) return text;
     for (final l in {from, to, AppLanguage.english}) {
       if (!await isReady(l)) {
@@ -115,12 +116,12 @@ class SmartTextTranslator implements TextTranslator {
   Future<bool> download(AppLanguage language) => offline.download(language);
 
   @override
-  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to}) async {
+  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to, bool fast = false}) async {
     if (from == to || text.trim().isEmpty) return text;
     final skip = _skipOnlineUntil;
     if (skip == null || _clock().isAfter(skip)) {
       try {
-        final result = await online.translate(text, from: from.code, to: to.code);
+        final result = await online.translate(text, from: from.code, to: to.code, fast: fast);
         lastWasOnline = true;
         return result;
       } on ApiException catch (e) {

@@ -8,6 +8,7 @@ from pydantic import Field, field_validator
 from app.auth.schemas import needs
 from app.models import EventCategory, Repeat, Role
 from app.schemas import CamelModel
+from app.udhaar.schemas import ClientRef
 
 MAX_REMIND_MINUTES = 7 * 24 * 60  # one week before
 
@@ -23,6 +24,8 @@ class EventIn(CamelModel):
     time: dt.time | None = None
     repeat: Repeat = Repeat.NONE
     remind_minutes: int | None = Field(default=None, ge=0, le=MAX_REMIND_MINUTES)
+    # Only when adding.
+    client_ref: ClientRef | None = None
 
     @field_validator("day")
     @classmethod

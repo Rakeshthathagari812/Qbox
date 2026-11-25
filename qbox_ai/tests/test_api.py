@@ -36,11 +36,11 @@ class FakeModels:
     def installed(self):
         return {"en-indic": True, "indic-en": True, "indic-indic": True, "speech": True}
 
-    def translate(self, text, source, target):
+    def translate(self, text, source, target, fast=False):
         if self.error:
             raise self.error
         translation_direction(source, target)
-        return f"[{source}>{target}] {text}"
+        return f"[{source}>{target}] {text}" + (" (fast)" if fast else "")
 
     def speech_to_text(self, wav, language):
         if self.error:

@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import '../calculator/calculator_store.dart';
 import '../calculator/voice_services.dart';
 import '../calendar/calendar_api.dart';
+import '../calendar/calendar_repository.dart';
 import '../calendar/calendar_store.dart';
 import '../calendar/reminders.dart';
 import '../customer/pages_repository.dart';
@@ -67,6 +68,8 @@ class AppServices {
     final language = HttpLanguageApi(api);
     final settings = PrefsSettingsStore();
     final profile = HttpProfileApi(api);
+    final calendarStore = PrefsCalendarStore();
+    final reminders = LocalReminderScheduler();
     return AppServices(
       auth: HttpAuthApi(api),
       session: session,
@@ -79,9 +82,9 @@ class AppServices {
         language: language,
       ),
       speaker: DeviceSpeaker(),
-      calendar: HttpCalendarApi(api),
-      calendarStore: PrefsCalendarStore(),
-      reminders: LocalReminderScheduler(),
+      calendar: CalendarRepository(HttpCalendarApi(api), calendarStore, reminders),
+      calendarStore: calendarStore,
+      reminders: reminders,
       udhaar: UdhaarRepository(HttpUdhaarApi(api), SecureUdhaarStore()),
       device: PhoneDeviceActions(),
       // The QBOX server (IndicTrans2); the on-phone translator when offline.
@@ -106,7 +109,8 @@ class AppServices {
   final CalculatorStore calculator;
   final VoiceInput voice;
   final Speaker speaker;
-  final CalendarApi calendar;
+  /// The calendar (server copy, phone copy, offline changes).
+  final CalendarRepository calendar;
   final CalendarStore calendarStore;
   final ReminderScheduler reminders;
   final UdhaarRepository udhaar;
@@ -155,7 +159,8 @@ class AppServices {
       await stock.pendingCount() +
       await suppliers.pendingCount() +
       await transactions.pendingCount() +
-      await pages.pendingCount();
+      await pages.pendingCount() +
+      await calendar.pendingCount();
 
   /// Forgets everything this user kept on the phone (log out, expired login).
   Future<void> forgetUserData() async {

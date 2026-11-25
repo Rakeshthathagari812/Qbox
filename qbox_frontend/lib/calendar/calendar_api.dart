@@ -7,7 +7,8 @@ import 'calendar_models.dart';
 abstract class CalendarApi {
   Future<List<CalendarEvent>> events(QboxRole role);
 
-  Future<CalendarEvent> create(QboxRole role, EventDraft draft);
+  /// The same [ref] sent twice is kept once.
+  Future<CalendarEvent> create(QboxRole role, EventDraft draft, {String? ref});
 
   Future<CalendarEvent> update(QboxRole role, int id, EventDraft draft);
 
@@ -28,8 +29,8 @@ class HttpCalendarApi implements CalendarApi {
   }
 
   @override
-  Future<CalendarEvent> create(QboxRole role, EventDraft draft) async {
-    return _one(await _api.post('/api/calendar/events', draft.toJson(role)));
+  Future<CalendarEvent> create(QboxRole role, EventDraft draft, {String? ref}) async {
+    return _one(await _api.post('/api/calendar/events', {...draft.toJson(role), 'clientRef': ?ref}));
   }
 
   @override

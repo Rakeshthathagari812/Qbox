@@ -74,6 +74,76 @@ void main() {
     expect(speaker.said, [_spoken790]);
   });
 
+  testWidgets('it stops by itself after one sum, and "plus 10" carries on', (tester) async {
+    final voice = FakeVoiceInput()..queue.addAll(['20 + 30', 'plus 10', 'clear']);
+    final speaker = FakeSpeaker();
+    await openCalculator(tester, fakeServices(voice: voice, speaker: speaker));
+    Future<void> speak() async {
+      await tester.tap(find.byKey(const Key('calc-mic')));
+      await tester.pumpAndSettle();
+    }
+
+    await speak();
+    expect(speaker.said.last, 'twenty plus thirty equals fifty');
+    expect(voice.listenCount, 1);
+    expect(find.text('Speak'), findsOneWidget);
+    await speak();
+    expect(mainLine(tester), '60');
+    expect(speaker.said.last, 'fifty plus ten equals sixty');
+    await speak();
+    expect(mainLine(tester), '0');
+  });
+
+  testWidgets('"20 plus" waits for the rest', (tester) async {
+    final voice = FakeVoiceInput()..queue.addAll(['20 plus', '30']);
+    await openCalculator(tester, fakeServices(voice: voice));
+    await tester.tap(find.byKey(const Key('calc-mic')));
+    await tester.pumpAndSettle();
+    expect(mainLine(tester), '50');
+    expect(voice.lastPace!.unfinished!('40 minus'), isTrue);
+  });
+
+  testWidgets('Telugu: the whole sum is said, with English numbers in Telugu letters', (tester) async {
+    final voice = FakeVoiceInput()..nextWords = 'ట్వంటీ ప్లస్ థర్టీ';
+    final speaker = FakeSpeaker();
+    await openCalculator(tester, fakeServices(voice: voice, speaker: speaker));
+    await tester.tap(find.byKey(const Key('calc-voice-lang')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('voice-lang-te')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('calc-mic')));
+    await tester.pumpAndSettle();
+    expect(mainLine(tester), '50');
+    expect((speaker.said.last, speaker.locales.last), ('20 ప్లస్ 30 సమానం 50', 'te-IN'));
+  });
+
+  testWidgets('Keep listening: again after every answer, until "stop"; remembered', (tester) async {
+    final voice = FakeVoiceInput()..queue.addAll(['5 + 5', 'plus 2', 'stop']);
+    final store = MemoryCalculatorStore();
+    await openCalculator(tester, fakeServices(voice: voice, calculator: store));
+    await tester.tap(find.byKey(const Key('calc-keep')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('calc-mic')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    expect(voice.listenCount, 3);
+    expect(mainLine(tester), '12');
+    expect(find.text('Speak'), findsOneWidget);
+    expect(store.data!['keepListening'], isTrue);
+  });
+
+  testWidgets('Keep listening ends after two silences', (tester) async {
+    final voice = FakeVoiceInput();
+    await openCalculator(tester, fakeServices(voice: voice));
+    await tester.tap(find.byKey(const Key('calc-keep')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('calc-mic')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 6));
+    expect(voice.listenCount, 2);
+    expect(find.text('Speak'), findsOneWidget);
+  });
+
   testWidgets('voice that is not a sum shows a hint', (tester) async {
     final voice = FakeVoiceInput()..nextWords = 'hello qbox';
     await openCalculator(tester, fakeServices(voice: voice));
@@ -144,13 +214,16 @@ void main() {
   testWidgets('while listening, the display shows the Listening panel and Stop', (
     tester,
   ) async {
-    final voice = _HeldVoice();
+    final voice = HeldVoice();
     await openCalculator(tester, fakeServices(voice: voice));
 
     await tester.tap(find.byKey(const Key('calc-mic')));
     await tester.pump();
-    expect(find.byKey(const Key('calc-listening')), findsOneWidget);
+    expect(find.text('Getting ready…'), findsOneWidget);
     expect(find.text('Stop'), findsOneWidget);
+    voice.ready!();
+    await tester.pump();
+    expect(find.text('Speak now'), findsOneWidget);
 
     voice.words('500 minus 50');
     await tester.pump();
@@ -219,9 +292,10 @@ void main() {
 }
 
 /// A microphone that keeps listening until the test says it is done.
-class _HeldVoice implements VoiceInput {
+class HeldVoice implements VoiceInput {
   final _done = Completer<String>();
   void Function(String)? _onWords;
+  void Function()? ready;
   String _heard = '';
 
   void words(String text) {
@@ -235,8 +309,11 @@ class _HeldVoice implements VoiceInput {
   Future<String> listen({
     required void Function(String words) onWords,
     String localeId = 'en_IN',
+    VoicePace pace = const VoicePace(),
+    void Function()? onReady,
   }) {
     _onWords = onWords;
+    ready = onReady;
     return _done.future;
   }
 

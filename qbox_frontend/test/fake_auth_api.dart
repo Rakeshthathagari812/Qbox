@@ -2,6 +2,7 @@ import 'package:qbox_app/calculator/calculator_store.dart';
 import 'package:qbox_app/calculator/voice_services.dart';
 import 'package:qbox_app/calendar/calendar_api.dart';
 import 'package:qbox_app/calendar/calendar_models.dart';
+import 'package:qbox_app/calendar/calendar_repository.dart';
 import 'package:qbox_app/calendar/calendar_store.dart';
 import 'package:qbox_app/calendar/reminders.dart';
 import 'package:qbox_app/customer/pages_repository.dart';
@@ -217,7 +218,11 @@ class _Account {
 /// Pretend microphone: returns [nextWords] (or throws [nextError]).
 class FakeVoiceInput implements VoiceInput {
   String nextWords = '';
+
+  /// Said one after another, before [nextWords].
+  final List<String> queue = [];
   VoiceException? nextError;
+  VoicePace? lastPace;
   int listenCount = 0;
 
   /// The language it was last asked to listen in.
@@ -227,13 +232,18 @@ class FakeVoiceInput implements VoiceInput {
   Future<String> listen({
     required void Function(String words) onWords,
     String localeId = 'en_IN',
+    VoicePace pace = const VoicePace(),
+    void Function()? onReady,
   }) async {
     listenCount++;
     lastLocale = localeId;
+    lastPace = pace;
     final error = nextError;
     if (error != null) throw error;
-    onWords(nextWords);
-    return nextWords;
+    onReady?.call();
+    final words = queue.isEmpty ? nextWords : queue.removeAt(0);
+    onWords(words);
+    return words;
   }
 
   @override
@@ -258,7 +268,9 @@ class FakeSpeaker implements Speaker {
   Future<bool> hasVoice(String locale) async => !missingVoices.contains(locale);
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async => stops++;
+
+  int stops = 0;
 }
 
 AppServices fakeServices({
@@ -293,15 +305,17 @@ AppServices fakeServices({
   SupplyStore? supplyStore,
 }) {
   final profileApi = profile ?? FakeProfileApi();
+  final calendarCopy = calendarStore ?? MemoryCalendarStore();
+  final reminderList = reminders ?? FakeReminders();
   return AppServices(
     auth: api ?? FakeAuthApi(),
     session: session ?? MemorySessionStore(),
     calculator: calculator ?? MemoryCalculatorStore(),
     voice: voice ?? FakeVoiceInput(),
     speaker: speaker ?? FakeSpeaker(),
-    calendar: calendar ?? FakeCalendarApi(),
-    calendarStore: calendarStore ?? MemoryCalendarStore(),
-    reminders: reminders ?? FakeReminders(),
+    calendar: CalendarRepository(calendar ?? FakeCalendarApi(), calendarCopy, reminderList),
+    calendarStore: calendarCopy,
+    reminders: reminderList,
     udhaar: UdhaarRepository(
       udhaar ?? FakeUdhaarApi(),
       udhaarStore ?? MemoryUdhaarStore(),
@@ -333,6 +347,7 @@ class FakeTranslator implements TextTranslator {
   final Set<AppLanguage> downloaded = {...AppLanguage.values};
   final List<AppLanguage> downloads = [];
   bool failDownloads = false;
+  TranslateException? error;
 
   @override
   Future<bool> isReady(AppLanguage language) async => downloaded.contains(language);
@@ -346,8 +361,10 @@ class FakeTranslator implements TextTranslator {
   }
 
   @override
-  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to}) async {
+  Future<String> translate(String text, {required AppLanguage from, required AppLanguage to, bool fast = false}) async {
     if (from == to) return text;
+    final e = error;
+    if (e != null) throw e;
     for (final l in {from, to}) {
       if (!downloaded.contains(l)) {
         throw TranslateException(
@@ -365,6 +382,12 @@ class FakeLanguageApi implements LanguageApi {
   ApiException? error;
   int translateCalls = 0;
   String heard = '';
+  bool? lastFast;
+  int heardClips = 0;
+  int lastClip = 0;
+
+  /// What is heard when [heard] is not set.
+  final String speechText = 'బియ్యం';
   String? lastAudio;
   bool online = true;
   int statusCalls = 0;
@@ -376,8 +399,9 @@ class FakeLanguageApi implements LanguageApi {
   }
 
   @override
-  Future<String> translate(String text, {required String from, required String to}) async {
+  Future<String> translate(String text, {required String from, required String to, bool fast = false}) async {
     translateCalls++;
+    lastFast = fast;
     final e = error;
     if (e != null) throw e;
     return 'online[$from>$to] $text';
@@ -386,14 +410,35 @@ class FakeLanguageApi implements LanguageApi {
   @override
   Future<String> speechToText(String wavBase64, {required String language, int samplingRate = 16000}) async {
     lastAudio = wavBase64;
+    heardClips++;
+    lastClip = wavBase64.length * 3 ~/ 4;
     final e = error;
     if (e != null) throw e;
-    return heard;
+    return heard.isEmpty ? speechText : heard;
   }
 }
 
 /// Pretend phone: remembers links it was asked to open; returns [nextContact].
 class FakeDeviceActions implements DeviceActions {
+  int settingsOpened = 0;
+  int voiceSettingsOpened = 0;
+  int? volume = 60;
+
+  @override
+  Future<bool> openVoiceSettings() async {
+    voiceSettingsOpened++;
+    return true;
+  }
+
+  @override
+  Future<int?> mediaVolume() async => volume;
+
+  @override
+  Future<bool> openAppSettings() async {
+    settingsOpened++;
+    return true;
+  }
+
   final List<Uri> opened = [];
   PickedContact? nextContact;
 
@@ -676,6 +721,10 @@ class FakeCalendarApi implements CalendarApi {
     ),
   ];
   bool offline = false;
+
+  /// The next event is saved, but the answer does not come back.
+  bool loseAnswer = false;
+  final Map<String?, int> _refs = {};
   int _nextId = 1;
 
   void _check() {
@@ -705,10 +754,17 @@ class FakeCalendarApi implements CalendarApi {
   }
 
   @override
-  Future<CalendarEvent> create(QboxRole role, EventDraft draft) async {
+  Future<CalendarEvent> create(QboxRole role, EventDraft draft, {String? ref}) async {
     _check();
+    final before = _refs[ref];
+    if (before != null) return saved[role]!.firstWhere((e) => e.id == before);
     final event = _make(_nextId++, draft);
     (saved[role] ??= []).add(event);
+    if (ref != null) _refs[ref] = event.id;
+    if (loseAnswer) {
+      loseAnswer = false;
+      throw const ApiException('NETWORK', 'No answer');
+    }
     return event;
   }
 
@@ -741,6 +797,17 @@ class FakeReminders implements ReminderScheduler {
   final Map<QboxRole, List<CalendarEvent>> synced = {};
   bool cleared = false;
   int permissionAsks = 0;
+  ReminderProblem now = ReminderProblem.none;
+  int exactAsks = 0;
+
+  @override
+  Future<ReminderProblem> problem() async => now;
+
+  @override
+  Future<void> askExactTime() async {
+    exactAsks++;
+    now = ReminderProblem.none;
+  }
 
   @override
   Future<bool> askPermission() async {

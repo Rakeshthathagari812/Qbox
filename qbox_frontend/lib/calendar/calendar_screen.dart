@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../calculator/voice_services.dart';
 import '../onboarding_draft.dart';
@@ -11,6 +12,8 @@ import '../translator/voice_language.dart';
 import 'calendar_models.dart';
 import 'calendar_style.dart';
 import 'event_form_screen.dart';
+import 'reminders.dart';
+import 'spoken_time.dart';
 import 'voice_event.dart';
 
 /// Opens the Shop calendar (Business home tile).
@@ -40,7 +43,7 @@ class CalendarScreen extends StatefulWidget {
   State<CalendarScreen> createState() => _CalendarScreenState();
 }
 
-class _CalendarScreenState extends State<CalendarScreen> {
+class _CalendarScreenState extends State<CalendarScreen> with WidgetsBindingObserver {
   AppServices? _services;
   late final DateTime _today;
   late DateTime _month;
@@ -50,6 +53,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _syncing = false;
   bool _offline = false;
   bool _listening = false;
+
+  /// The microphone is really open (else it is still getting ready).
+  bool _micOpen = false;
+  ReminderProblem _problem = ReminderProblem.none;
+  int _unsent = 0;
   String _heard = '';
   AppLanguage _voiceLang = AppLanguage.english;
 
@@ -62,6 +70,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final now = widget.today ?? DateTime.now();
     _today = DateTime(now.year, now.month, now.day);
     _month = DateTime(_today.year, _today.month);
@@ -77,7 +86,21 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back from the phone's settings: set the reminders at the exact time.
+    if (state == AppLifecycleState.resumed && _services != null) unawaited(_checkReminders());
+  }
+
+  Future<void> _checkReminders() async {
+    final before = _problem;
+    final now = await _app.reminders.problem();
+    if (now == ReminderProblem.none && before != now) await _app.reminders.sync(widget.role, _events);
+    if (mounted && now != before) setState(() => _problem = now);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_listening) unawaited(_app.voice.stop());
     super.dispose();
   }
@@ -93,6 +116,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _festivals = festivals ?? const [];
       _voiceLang = lang;
     });
+    unawaited(_checkReminders());
+    final voice = _app.voice;
+    if (voice is VoiceWarmUp) unawaited((voice as VoiceWarmUp).warmUp(localeId: lang.speechLocale));
     // 2. Then fetch the latest from the server.
     await _sync();
   }
@@ -102,7 +128,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     try {
       final events = await _app.calendar.events(widget.role);
       final festivals = await _app.calendar.festivals();
-      await _app.calendarStore.saveEvents(widget.role, events);
       await _app.calendarStore.saveFestivals(festivals);
       unawaited(_app.reminders.sync(widget.role, events));
       if (!mounted) return;
@@ -114,7 +139,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       if (e.isNetwork) {
-        setState(() => _offline = true);
+        // The copy on the phone, with what was added here since.
+        final here = await _app.calendarStore.loadEvents(widget.role);
+        if (!mounted) return;
+        setState(() {
+          _offline = true;
+          _events = here ?? _events;
+        });
       } else {
         _notify(
           e.isUnauthorized
@@ -123,7 +154,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _syncing = false);
+      final unsent = await _app.calendar.pendingCount();
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          _unsent = unsent;
+        });
+      }
     }
   }
 
@@ -197,7 +234,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
         _month = DateTime(draft.day.year, draft.day.month);
       });
       await _sync();
-      if (mounted) _notify(existing == null ? 'Event saved' : 'Event updated');
+      await _checkReminders();
+      if (mounted) {
+        _notify(
+          _offline
+              ? 'Saved on this phone. It will be sent when there is internet.'
+              : existing == null
+              ? 'Event saved'
+              : 'Event updated',
+        );
+      }
     }
   }
 
@@ -213,6 +259,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  Future<void> _fixReminders() async {
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _OnTimeSheet(problem: _problem),
+    );
+    if (go == null || !mounted) return;
+    if (go && _problem == ReminderProblem.notExact) {
+      await _app.reminders.askExactTime();
+      await _checkReminders();
+    } else if (!await _app.device.openAppSettings() && mounted) {
+      _notify('Open phone Settings > Apps > QBOX');
+    }
+  }
+
   Future<void> _voiceAdd() async {
     if (_listening) {
       await _app.voice.stop();
@@ -220,11 +282,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
     setState(() {
       _listening = true;
+      _micOpen = false;
       _heard = '';
     });
     try {
       final words = await _app.voice.listen(
         localeId: _voiceLang.speechLocale,
+        pace: const VoicePace(pause: Duration(milliseconds: 1400), serverPause: Duration(milliseconds: 1100)),
+        onReady: () {
+          if (!mounted || !_listening) return;
+          HapticFeedback.mediumImpact();
+          setState(() => _micOpen = true);
+        },
         onWords: (w) {
           if (mounted) setState(() => _heard = w);
         },
@@ -249,6 +318,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         english,
         widget.today ?? DateTime.now(),
         defaultCategory: _defaultCategory,
+        spokenTime: nativeTime(words, _voiceLang),
       );
       if (draft == null) {
         _notify(
@@ -303,18 +373,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   color: const Color(0xFFFFF4E6),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.wifi_off_rounded,
                       size: 18,
                       color: festivalColor,
                     ),
-                    SizedBox(width: 8),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Offline: showing your saved calendar. Adding needs internet.',
-                        style: TextStyle(
+                        _unsent > 0
+                            ? 'Offline: saved on this phone. $_unsent to send when there is internet.'
+                            : 'Offline: showing your saved calendar. You can still add; reminders still ring.',
+                        style: const TextStyle(
                           fontFamily: 'Poppins',
                           fontSize: 12,
                           color: calInk,
@@ -324,6 +396,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ],
                 ),
               ),
+            if (_problem != ReminderProblem.none) _OnTimeCard(problem: _problem, onFix: _fixReminders),
             const SizedBox(height: 8),
             Expanded(
               child: RefreshIndicator(
@@ -388,7 +461,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ),
               ),
             ),
-            if (_listening) _ListeningBar(heard: _heard),
+            if (_listening) _ListeningBar(heard: _heard, open: _micOpen),
             Align(
               alignment: Alignment.centerLeft,
               child: Padding(
@@ -402,6 +475,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
             _BottomBar(
               listening: _listening,
+              micOpen: _micOpen,
               onSpeak: _voiceAdd,
               onAdd: _listening ? null : _addEvent,
             ),
@@ -845,10 +919,115 @@ class _EventCard extends StatelessWidget {
   }
 }
 
+/// Shown while something stops reminders from ringing on time.
+class _OnTimeCard extends StatelessWidget {
+  const _OnTimeCard({required this.problem, required this.onFix});
+
+  final ReminderProblem problem;
+  final VoidCallback onFix;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+    child: Material(
+      color: const Color(0xFFFFF4E6),
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const Key('calendar-on-time'),
+        onTap: onFix,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              const Icon(Icons.alarm_rounded, size: 20, color: festivalColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  problem == ReminderProblem.notificationsOff
+                      ? 'Notifications are off: reminders cannot ring'
+                      : 'Make reminders ring on time',
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: calInk,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: calPurple),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _OnTimeSheet extends StatelessWidget {
+  const _OnTimeSheet({required this.problem});
+
+  final ReminderProblem problem;
+
+  @override
+  Widget build(BuildContext context) {
+    const text = TextStyle(fontFamily: 'Poppins', fontSize: 14, height: 1.5, color: calInk);
+    final off = problem == ReminderProblem.notificationsOff;
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Make reminders ring on time',
+              style: TextStyle(fontFamily: 'Poppins', fontSize: 18, fontWeight: FontWeight.w700, color: calInk),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              off
+                  ? '1. Open settings, tap Notifications and allow them.'
+                  : '1. Allow "Alarms & reminders" for QBOX on the next page. Without it, Android may ring up to an hour late.',
+              style: text,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '2. If reminders still do not ring: open settings, tap Battery, and allow background activity (Unrestricted). '
+              'On OPPO, realme, vivo and Xiaomi phones also turn on Auto launch.',
+              style: text,
+            ),
+            const SizedBox(height: 16),
+            if (!off)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  key: const Key('on-time-allow'),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: FilledButton.styleFrom(backgroundColor: calPurple),
+                  child: const Text('Allow'),
+                ),
+              ),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                key: const Key('on-time-settings'),
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Open QBOX settings'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ListeningBar extends StatelessWidget {
-  const _ListeningBar({required this.heard});
+  const _ListeningBar({required this.heard, required this.open});
 
   final String heard;
+  final bool open;
 
   @override
   Widget build(BuildContext context) {
@@ -870,9 +1049,15 @@ class _ListeningBar extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Listening…',
-                  style: TextStyle(
+                Text(
+                  !open
+                      ? 'Getting ready…'
+                      : heard.isEmpty
+                      ? 'Speak now'
+                      : heard == '…'
+                      ? 'Working it out…'
+                      : 'Listening…',
+                  style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontWeight: FontWeight.w700,
                     color: calPurple,
@@ -905,11 +1090,13 @@ class _ListeningBar extends StatelessWidget {
 class _BottomBar extends StatelessWidget {
   const _BottomBar({
     required this.listening,
+    required this.micOpen,
     required this.onSpeak,
     required this.onAdd,
   });
 
   final bool listening;
+  final bool micOpen;
   final VoidCallback onSpeak;
   final VoidCallback? onAdd;
 
@@ -927,8 +1114,17 @@ class _BottomBar extends StatelessWidget {
               child: OutlinedButton.icon(
                 key: const Key('calendar-speak'),
                 onPressed: onSpeak,
-                icon: Icon(listening ? Icons.stop_rounded : Icons.mic_rounded),
-                label: Text(listening ? 'Stop' : 'Speak'),
+                icon: Icon(listening ? Icons.graphic_eq_rounded : Icons.mic_rounded),
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    !listening
+                        ? 'Speak'
+                        : micOpen
+                        ? 'Listening…'
+                        : 'Getting ready…',
+                  ),
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: speakColor,
                   backgroundColor: listening

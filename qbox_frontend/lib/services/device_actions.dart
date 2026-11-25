@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_native_contact_picker/flutter_native_contact_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,6 +12,15 @@ class PickedContact {
 
 /// Things the app asks the phone to do: open WhatsApp / SMS / dialer, pick a contact.
 abstract class DeviceActions {
+  /// QBOX's own page in the phone's settings.
+  Future<bool> openAppSettings();
+
+  /// Where the phone's voices are added.
+  Future<bool> openVoiceSettings();
+
+  /// How loud the phone speaks, 0 to 100. Null = not known.
+  Future<int?> mediaVolume();
+
   /// Opens [uri] in the right app. False if no app can open it.
   Future<bool> openLink(Uri uri);
 
@@ -22,6 +32,30 @@ abstract class DeviceActions {
 
 class PhoneDeviceActions implements DeviceActions {
   final _picker = FlutterNativeContactPicker();
+  static const _settings = MethodChannel('qbox/settings');
+
+  @override
+  Future<bool> openAppSettings() => _open('appSettings');
+
+  @override
+  Future<bool> openVoiceSettings() => _open('voiceSettings');
+
+  Future<bool> _open(String page) async {
+    try {
+      return await _settings.invokeMethod<bool>(page) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<int?> mediaVolume() async {
+    try {
+      return await _settings.invokeMethod<int>('mediaVolume');
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Future<bool> openLink(Uri uri) async {

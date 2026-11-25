@@ -188,10 +188,22 @@ List<QboxPage> sortPages(Iterable<QboxPage> pages) => pages.toList()
 const _number = r'(?:\d+(?:\.\d+)?(?:\s*/\s*\d+)?|half|quarter|½|¼)';
 const _unit =
     r'(?:kgs?|kilos?|kilograms?|g|gms?|grams?|l|ltrs?|lit(?:re|er)s?|ml|packets?|packs?|pkts?|pieces?|pcs?|'
-    r'dozens?|bottles?|box(?:es)?|bunch(?:es)?|bags?|tins?|strips?)';
+    r'dozens?|bottles?|box(?:es)?|bunch(?:es)?|bags?|tins?|strips?|trays?|'
+    // Beginnings, so endings like కిలోలు and ಕಿಲೋಗಳು count too.
+    r'(?:కిలో|కేజీ|గ్రాము|గ్రాం|లీటర్|లీటరు|మిల్లీ|ప్యాకెట్|పాకెట్|డజ|సీసా|బస్తా|పీసు|పీస్|'
+    r'किलो|केजी|ग्राम|लीटर|मिली|पैकेट|दर्जन|बोतल|बोरी|पीस|'
+    r'ಕಿಲೋ|ಕೆಜಿ|ಗ್ರಾಂ|ಗ್ರಾಮ್|ಲೀಟರ್|ಮಿಲಿ|ಪ್ಯಾಕೆಟ್|ಡಜನ್|ಬಾಟಲಿ|ಪೀಸ್|'
+    r'கிலோ|கிராம்|லிட்டர்|மில்லி|பாக்கெட்|டஜன்|பாட்டில்|பீஸ்)\S*)';
+final _unitWord = RegExp('^$_unit\$', caseSensitive: false);
+
+/// Is [word] a unit, like kg, packets or కిలోలు?
+bool isUnitWord(String word) => _unitWord.hasMatch(word);
 final _qtyOnly = RegExp('^($_number\\s*$_unit)\$', caseSensitive: false);
 final _qtyFirst = RegExp('^($_number\\s*$_unit)\\s+(?:of\\s+)?(.+)\$', caseSensitive: false);
 final _qtyLast = RegExp('^(.+?)[\\s:=–-]+($_number\\s*$_unit)\$', caseSensitive: false);
+
+/// "eggs 12": a number with no unit, after a name (but not "vitamin b 12").
+final _countLast = RegExp(r'^(.*\p{L}\S*[^\s:=–-])[\s:=–-]+(\d{1,3})$', unicode: true);
 final _qtyGap = RegExp(r'(\d|½|¼)([a-z])', caseSensitive: false);
 
 /// Bullets, ticks and numbering in front of a pasted line.
@@ -222,13 +234,15 @@ List<PageItem> readItems(String words) {
 
 PageItem _readOne(String text) {
   final front = _qtyFirst.firstMatch(text);
-  if (front != null) return _make(front[2]!, front[1]!);
+  if (front != null) return makeItem(front[2]!, front[1]!);
   final back = _qtyLast.firstMatch(text);
-  if (back != null) return _make(back[1]!, back[2]!);
-  return _make(text, '');
+  if (back != null) return makeItem(back[1]!, back[2]!);
+  final count = _countLast.firstMatch(text);
+  if (count != null && RegExp(r'\S{2,}$').hasMatch(count[1]!)) return makeItem(count[1]!, count[2]!);
+  return makeItem(text, '');
 }
 
-PageItem _make(String text, String qty) {
+PageItem makeItem(String text, String qty) {
   final cut = cutTo(text, maxItemChars).trim();
   return PageItem.create(cut.isEmpty ? cut : cut[0].toUpperCase() + cut.substring(1), qty: _tidyQty(qty));
 }

@@ -151,11 +151,16 @@ void main() {
     expect(find.byKey(const Key('calendar-offline')), findsOneWidget);
     expect(find.text('Saved earlier'), findsOneWidget);
 
-    // Saving needs internet: a clear message, nothing lost.
+    // Adding works too: it is sent later.
     await tapKey(tester, 'calendar-add');
     await typeTitle(tester, 'New');
     await tapKey(tester, 'event-save');
-    expect(find.textContaining('Saving needs internet'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4)); // the message goes
+    await tester.pumpAndSettle();
+    await tester.drag(find.text('Saved earlier'), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    expect(find.text('New'), findsOneWidget);
+    expect(store.changes.single.draft!.title, 'New');
   });
 
   testWidgets('shop and personal calendars are separate', (tester) async {

@@ -22,9 +22,17 @@ abstract class ReminderScheduler {
   /// [id] replaces an earlier notification with the same id.
   Future<void> showNow({required int id, required String title, required String body});
 
+  /// What stops reminders from ringing on time, if anything.
+  Future<ReminderProblem> problem();
+
+  /// Opens the phone's page where exact-time reminders are allowed.
+  Future<void> askExactTime();
+
   /// Replaces all supplier pay-by reminders with [dues] (each rings at 9 AM on its day).
   Future<void> syncDues(List<DueReminder> dues);
 }
+
+enum ReminderProblem { none, notificationsOff, notExact }
 
 /// "Pay Ravi Traders ₹7,000 today", ringing at 9 AM on [day].
 class DueReminder {
@@ -114,9 +122,42 @@ class LocalReminderScheduler implements ReminderScheduler {
   }
 
   @override
-  Future<void> sync(QboxRole role, List<CalendarEvent> events) async {
+  Future<ReminderProblem> problem() async {
+    if (!await _init()) return ReminderProblem.none;
+    try {
+      if (await _android?.areNotificationsEnabled() == false) return ReminderProblem.notificationsOff;
+      if (await _android?.canScheduleExactNotifications() == false) return ReminderProblem.notExact;
+    } catch (_) {}
+    return ReminderProblem.none;
+  }
+
+  @override
+  Future<void> askExactTime() async {
     if (!await _init()) return;
     try {
+      await _android?.requestExactAlarmsPermission();
+    } catch (_) {}
+  }
+
+  /// At the exact minute when the user allows it; else Android may ring late.
+  /// The alarm-clock kind: the others were still held back on some phones (OPPO).
+  Future<AndroidScheduleMode> _mode() async {
+    try {
+      if (await _android?.canScheduleExactNotifications() ?? false) return AndroidScheduleMode.alarmClock;
+    } catch (_) {}
+    return AndroidScheduleMode.inexactAllowWhileIdle;
+  }
+
+  /// One at a time, so two do not undo each other.
+  Future<void> _last = Future.value();
+
+  @override
+  Future<void> sync(QboxRole role, List<CalendarEvent> events) => _last = _last.then((_) => _sync(role, events));
+
+  Future<void> _sync(QboxRole role, List<CalendarEvent> events) async {
+    if (!await _init()) return;
+    try {
+      final mode = await _mode();
       final tag = 'role:${roleCode(role)}';
       for (final pending in await _plugin.pendingNotificationRequests()) {
         if (pending.payload == tag) await _plugin.cancel(id: pending.id);
@@ -129,9 +170,7 @@ class LocalReminderScheduler implements ReminderScheduler {
           id: _notificationId(role, event.id),
           scheduledDate: tz.TZDateTime.from(at, tz.local),
           notificationDetails: const NotificationDetails(android: _channel),
-          // Inexact: may ring a few minutes late, but needs no special
-          // "exact alarm" permission from the user.
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          androidScheduleMode: mode,
           title: event.title,
           body: reminderBody(event, at),
           payload: tag,
@@ -185,6 +224,7 @@ class LocalReminderScheduler implements ReminderScheduler {
         if (pending.payload == _duesTag) await _plugin.cancel(id: pending.id);
       }
       final now = DateTime.now();
+      final mode = await _mode();
       for (final due in dues) {
         final at = DateTime(due.day.year, due.day.month, due.day.day, 9);
         if (!at.isAfter(now)) continue;
@@ -193,7 +233,7 @@ class LocalReminderScheduler implements ReminderScheduler {
           id: (due.id & 0x1fffffff) | 0x60000000,
           scheduledDate: tz.TZDateTime.from(at, tz.local),
           notificationDetails: const NotificationDetails(android: _channel),
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          androidScheduleMode: mode,
           title: due.title,
           body: due.body,
           payload: _duesTag,
@@ -204,8 +244,10 @@ class LocalReminderScheduler implements ReminderScheduler {
     }
   }
 
-  static int _notificationId(QboxRole role, int eventId) =>
-      (eventId * 4 + role.index) & 0x7fffffff;
+  /// Events added without internet (ids below 0) have a range of their own.
+  static int _notificationId(QboxRole role, int eventId) => eventId < 0
+      ? 0x3f000000 | ((-eventId * 4 + role.index) & 0xffffff)
+      : (eventId * 4 + role.index) & 0x7fffffff;
 
   static DateTimeComponents? _repeatMatch(Repeat repeat) => switch (repeat) {
     Repeat.none => null,

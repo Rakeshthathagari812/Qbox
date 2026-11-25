@@ -43,9 +43,9 @@ def is_online(ai: AiClient) -> bool:
     return ai.is_up()
 
 
-def translate(user: User, ai: AiClient, text: str, source: str, target: str) -> str:
+def translate(user: User, ai: AiClient, text: str, source: str, target: str, fast: bool = False) -> str:
     count_request(user)
-    return ai.translate(text.strip(), source, target)
+    return ai.translate(text.strip(), source, target, fast)
 
 
 def speech_to_text(user: User, ai: AiClient, audio_base64: str, language: str, sampling_rate: int) -> str:

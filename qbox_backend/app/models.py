@@ -328,7 +328,10 @@ class CalendarEvent(Base):
     calendar (the Shop calendar and the Customer calendar never mix)."""
 
     __tablename__ = "calendar_events"
-    __table_args__ = (Index("idx_calendar_events_owner", "user_id", "role", "event_date"),)
+    __table_args__ = (
+        Index("idx_calendar_events_owner", "user_id", "role", "event_date"),
+        Index("uq_calendar_events_ref", "user_id", "client_ref", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -340,6 +343,8 @@ class CalendarEvent(Base):
     time: Mapped[dt.time | None] = mapped_column("event_time", Time)
     repeat: Mapped[str] = mapped_column(String(10), default="NONE", server_default="NONE")
     remind_minutes: Mapped[int | None] = mapped_column(Integer)
+    # Made by the phone: the same event sent twice (added offline) is kept once.
+    client_ref: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

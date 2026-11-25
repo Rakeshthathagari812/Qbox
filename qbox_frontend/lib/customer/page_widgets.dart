@@ -53,7 +53,7 @@ mixin VoiceWords<T extends StatefulWidget> on State<T> {
   }
 
   /// Starts listening (or stops). [onHeard] gets what was said.
-  Future<void> speak(void Function(String words) onHeard) async {
+  Future<void> speak(void Function(String words) onHeard, {VoicePace pace = const VoicePace()}) async {
     if (listening) {
       await app.voice.stop();
       return;
@@ -66,6 +66,7 @@ mixin VoiceWords<T extends StatefulWidget> on State<T> {
     try {
       final words = await app.voice.listen(
         localeId: voiceLang.speechLocale,
+        pace: pace,
         onWords: (w) {
           if (mounted) setState(() => heard = w);
         },

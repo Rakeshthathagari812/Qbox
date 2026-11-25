@@ -142,3 +142,20 @@ def test_deleting_an_account_deletes_its_events(client):
     with engine.begin() as connection:
         connection.execute(text("DELETE FROM users"))
         assert connection.execute(text("SELECT count(*) FROM calendar_events")).scalar_one() == 0
+
+
+def test_the_same_event_sent_twice_is_kept_once(client):
+    """Added without internet: the phone sends it again when no answer came."""
+    me = _account(client, "9876543210")
+    body = {**EVENT, "clientRef": "abcd-1234-offline"}
+    one = client.post("/api/calendar/events", json=body, headers=me).json()
+    two = client.post("/api/calendar/events", json=body, headers=me).json()
+    assert one["id"] == two["id"]
+    assert len(client.get("/api/calendar/events?role=BUSINESS", headers=me).json()) == 1
+    # Another user's phone may make the same ref.
+    other = _account(client, "9123456780")
+    assert client.post("/api/calendar/events", json=body, headers=other).json()["id"] != one["id"]
+    assert client.post("/api/calendar/events", json={**EVENT, "clientRef": "x"}, headers=me).status_code == 400
+    # Older apps send none.
+    assert client.post("/api/calendar/events", json=EVENT, headers=me).status_code == 201
+    assert client.post("/api/calendar/events", json=EVENT, headers=me).status_code == 201

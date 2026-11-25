@@ -18,7 +18,7 @@ def status(_: User = Depends(current_user), ai: AiClient = Depends(get_ai)):
 
 @router.post("/translate", response_model=TranslateOut, summary="Translate text (IndicTrans2)")
 def translate(body: TranslateIn, user: User = Depends(current_user), ai: AiClient = Depends(get_ai)):
-    return TranslateOut(text=service.translate(user, ai, body.text, body.source, body.target))
+    return TranslateOut(text=service.translate(user, ai, body.text, body.source, body.target, body.fast))
 
 
 @router.post("/speech-to-text", response_model=SpeechOut, summary="Words in a WAV recording (IndicConformer)")

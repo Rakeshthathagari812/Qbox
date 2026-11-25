@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'widgets/qbox_brand.dart';
 import 'package:flutter/services.dart';
 
+import 'ask/ask_screen.dart';
 import 'calculator/calculator_screen.dart';
 import 'calendar/calendar_screen.dart';
 import 'customer/checklist_notes_screen.dart';
@@ -389,59 +390,8 @@ class _AskQbox extends StatelessWidget {
   const _AskQbox();
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3EEFF),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: const Row(
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: _purple,
-              shape: BoxShape.circle,
-            ),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: Icon(Icons.mic, color: Colors.white, size: 26),
-            ),
-          ),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Ask QBOX',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: _ink,
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Check dues, payments, shop details and more by voice.',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 12,
-                    height: 1.3,
-                    fontWeight: FontWeight.w500,
-                    color: _body,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right, color: _purple, size: 22),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const AskCard(role: QboxRole.customer, title: 'Ask QBOX', about: 'Check dues, payments, shop details and more by voice.');
 }
 
 class _CoinsPainter extends CustomPainter {

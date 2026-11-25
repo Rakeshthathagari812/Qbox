@@ -4,13 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/app_services.dart';
-import '../translator/indic_numbers.dart';
 import '../translator/languages.dart';
 import '../translator/voice_language.dart';
 import 'calculator_engine.dart';
-import 'spoken_operators.dart';
 import 'voice_math.dart';
 import 'voice_services.dart';
+import 'voice_talk.dart';
 
 const _ink = Color(0xFF1C0E57);
 const _body = Color(0xFF5C5872);
@@ -31,11 +30,23 @@ class CalculatorScreen extends StatefulWidget {
   State<CalculatorScreen> createState() => _CalculatorScreenState();
 }
 
+enum _Heard { sum, nothing, end }
+
 class _CalculatorScreenState extends State<CalculatorScreen> {
   final CalculatorEngine _engine = CalculatorEngine();
   AppServices? _services;
   bool _muted = false;
   bool _listening = false;
+
+  /// The microphone is really open (else it is still getting ready).
+  bool _micOpen = false;
+
+  /// Listen again after every answer (off unless the user turns it on).
+  bool _keep = false;
+
+  /// Listening again and again right now.
+  bool _again = false;
+  Future<void>? _saying;
   String _heard = '';
   String? _message;
   Timer? _messageTimer;
@@ -62,20 +73,32 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   Future<void> _load() async {
     final lang = await readVoiceLanguage(_app.settings);
     if (mounted) setState(() => _voiceLang = lang);
+    _warmUp();
     final saved = await _app.calculator.load();
     if (!mounted || saved == null) return;
     setState(() {
       _engine.restore(saved);
       _muted = saved['muted'] == true;
+      _keep = saved['keepListening'] == true;
     });
   }
 
   void _save() {
-    unawaited(_app.calculator.save({..._engine.toJson(), 'muted': _muted}));
+    unawaited(_app.calculator.save({..._engine.toJson(), 'muted': _muted, 'keepListening': _keep}));
+  }
+
+  void _warmUp() {
+    final voice = _app.voice;
+    if (voice is VoiceWarmUp) unawaited((voice as VoiceWarmUp).warmUp(localeId: _voiceLang.speechLocale));
   }
 
   void _press(String key) {
     if (_listening) return;
+    if (_again) {
+      // Typing takes over from speaking.
+      _again = false;
+      unawaited(_app.speaker.stop());
+    }
     HapticFeedback.selectionClick();
     final before = _engine.answerCount;
     String? notice;
@@ -91,17 +114,16 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     _save();
     if (calculated && !_muted) {
       final value = _engine.result;
-      if (value != null) unawaited(_sayAnswer(value));
+      if (value != null) unawaited(_saying = _sayAnswer(value));
     }
   }
 
-  /// English: reads the whole sum back, so a wrong number is easy to catch.
-  /// Other languages: says the answer in that language's voice (the phone
-  /// reads the number in Telugu/Hindi/...), or in English if it has no such voice.
+  /// Reads the whole sum back, so a wrong number is easy to catch: in the
+  /// "Speak in" language, or in English if the phone has no such voice.
   Future<void> _sayAnswer(double value) async {
     final lang = _voiceLang;
     if (lang != AppLanguage.english && await _app.speaker.hasVoice(lang.voiceLocale)) {
-      await _app.speaker.say(formatPlain(value), locale: lang.voiceLocale);
+      await _app.speaker.say(spokenSum(_engine.evaluatedExpression, value, lang), locale: lang.voiceLocale);
       return;
     }
     await _app.speaker.say(spokenCalculation(_engine.evaluatedExpression, value));
@@ -114,16 +136,20 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       settings: _app.settings,
       translator: _app.translator,
     );
-    if (picked != null && mounted) setState(() => _voiceLang = picked);
+    if (picked != null && mounted) {
+      setState(() => _voiceLang = picked);
+      _warmUp();
+    }
   }
 
   /// The sum in what was said. Other languages: numbers and calculator words
   /// are read on the phone ("రెండు వందల యాభై ప్లస్ నూట ఎనభై" -> 250+180), which
   /// is exact and works offline. Only if that finds no sum is it translated.
   Future<String?> _sumFrom(String words) async {
-    if (_voiceLang == AppLanguage.english) return parseSpokenMath(words);
-    final local = parseSpokenMath(operatorsToSymbols(numbersToDigits(words, _voiceLang), _voiceLang));
-    if (local != null) return local;
+    final voice = _app.voice;
+    final guesses = voice is VoiceGuesses ? (voice as VoiceGuesses).guesses : const <String>[];
+    final local = bestSum(words, guesses, _voiceLang, last: _engine.result);
+    if (local != null || _voiceLang == AppLanguage.english) return local;
     final english = await voiceToEnglish(
       context,
       words: words,
@@ -143,48 +169,122 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     });
   }
 
+  /// The Speak / Stop key.
   Future<void> _voice() async {
     if (_listening) {
+      _again = false;
       await _app.voice.stop();
       return;
     }
+    if (_again) {
+      setState(() => _again = false);
+      await _app.speaker.stop();
+      return;
+    }
     await _app.speaker.stop();
+    if (!mounted) return;
+    _again = _keep;
+    var quiet = 0;
+    do {
+      final heard = await _hearSum();
+      if (!mounted) return;
+      if (heard == _Heard.end) break;
+      quiet = heard == _Heard.nothing ? quiet + 1 : 0;
+      if (quiet >= 2) break; // nobody is speaking any more
+      if (_again) await _finishedTalking();
+    } while (mounted && _again);
+    if (mounted) setState(() => _again = false);
+  }
+
+  /// It must not hear itself.
+  Future<void> _finishedTalking() async {
+    await _saying;
+    final speaker = _app.speaker;
+    if (speaker is SpeakerDone) await (speaker as SpeakerDone).finished;
+    if (mounted) await Future<void>.delayed(const Duration(milliseconds: 250));
+  }
+
+  /// Listens once; the microphone turns off by itself after the last word.
+  Future<String> _listen({String before = ''}) async {
     setState(() {
       _listening = true;
-      _heard = '';
+      _micOpen = false;
+      _heard = before;
       _message = null;
     });
+    String whole(String words) => before.isEmpty ? words : '$before $words';
+    final lang = _voiceLang;
+    final words = await _app.voice.listen(
+      localeId: lang.speechLocale,
+      pace: VoicePace(
+        pause: const Duration(milliseconds: 1200),
+        serverPause: const Duration(milliseconds: 1000),
+        longest: const Duration(seconds: 12),
+        waitForSpeech: before.isEmpty ? const Duration(seconds: 8) : const Duration(seconds: 4),
+        unfinished: (w) => sumUnfinished(whole(w), lang),
+      ),
+      onReady: () {
+        if (!mounted || !_listening) return;
+        HapticFeedback.mediumImpact(); // "speak now", without looking
+        setState(() => _micOpen = true);
+      },
+      onWords: (w) {
+        if (mounted) setState(() => _heard = whole(w));
+      },
+    );
+    return whole(words.trim()).trim();
+  }
+
+  Future<_Heard> _hearSum() async {
     try {
-      final words = await _app.voice.listen(
-        localeId: _voiceLang.speechLocale,
-        onWords: (words) {
-          if (mounted) setState(() => _heard = words);
-        },
-      );
-      if (!mounted) return;
-      if (words.trim().isEmpty) {
-        _notify(
-          'Didn'
-          't hear you. Tap Speak and say a sum.',
-        );
-        return;
-      }
+      var words = await _listen();
+      if (!mounted) return _Heard.end;
+      // "20 plus ...": wait for the rest, once.
+      if (words.isNotEmpty && sumUnfinished(words, _voiceLang)) words = await _listen(before: words);
+      if (!mounted) return _Heard.end;
       setState(() => _listening = false); // done hearing; may now ask for a language pack
+      if (words.isEmpty) {
+        _notify("Didn't hear you. Tap Speak and say a sum.");
+        return _Heard.nothing;
+      }
+      if (saysStop(words)) return _Heard.end;
+      if (saysClear(words)) {
+        setState(() => _engine.press('AC'));
+        _save();
+        return _Heard.sum;
+      }
       final sum = await _sumFrom(words);
-      if (!mounted) return;
+      if (!mounted) return _Heard.end;
       if (sum == null) {
         _notify('Could not understand "$words". Try: 250 plus 180');
-        return;
+        if (!_muted) unawaited(_saying = _askAgain());
+        return _Heard.nothing;
       }
       final before = _engine.answerCount;
       String? notice;
       setState(() => notice = _engine.calculate(sum));
       _afterChange(notice, calculated: _engine.answerCount != before);
+      return _Heard.sum;
     } on VoiceException catch (e) {
       if (mounted) _notify(e.message);
+      return _Heard.end;
     } finally {
       if (mounted) setState(() => _listening = false);
     }
+  }
+
+  Future<void> _askAgain() async {
+    final lang = _voiceLang;
+    if (await _app.speaker.hasVoice(lang.voiceLocale)) {
+      await _app.speaker.say(sayAgain(lang), locale: lang.voiceLocale);
+    }
+  }
+
+  void _toggleKeep() {
+    setState(() => _keep = !_keep);
+    if (!_keep) _again = false;
+    _save();
+    _notify(_keep ? 'Listens again after every answer' : 'Listens once each time');
   }
 
   void _toggleSound() {
@@ -231,17 +331,39 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                 onSound: _toggleSound,
                 onHistory: _showHistory,
               ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: VoiceLanguageChip(
-                  key: const Key('calc-voice-lang'),
-                  language: _voiceLang,
-                  onPressed: _listening ? null : _pickVoiceLanguage,
-                ),
+              Row(
+                children: [
+                  Flexible(
+                    child: VoiceLanguageChip(
+                      key: const Key('calc-voice-lang'),
+                      language: _voiceLang,
+                      onPressed: _listening || _again ? null : _pickVoiceLanguage,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    key: const Key('calc-keep'),
+                    label: const Text('Keep listening'),
+                    selected: _keep,
+                    onSelected: (_) => _toggleKeep(),
+                    labelStyle: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _keep ? Colors.white : _purple,
+                    ),
+                    backgroundColor: Colors.white,
+                    selectedColor: _purple,
+                    checkmarkColor: Colors.white,
+                    side: const BorderSide(color: Color(0xFFD9CEF5)),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
               ),
               _Display(
                 engine: _engine,
                 listening: _listening,
+                micOpen: _micOpen,
                 heard: _heard,
                 message: _message,
                 onPieceTap: (index) => setState(() {
@@ -258,7 +380,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                 child: _Keypad(
                   onKey: _press,
                   onMic: _voice,
-                  listening: _listening,
+                  listening: _listening || _again,
                 ),
               ),
             ],
@@ -361,6 +483,7 @@ class _Display extends StatelessWidget {
   const _Display({
     required this.engine,
     required this.listening,
+    required this.micOpen,
     required this.heard,
     required this.message,
     required this.onPieceTap,
@@ -369,6 +492,7 @@ class _Display extends StatelessWidget {
 
   final CalculatorEngine engine;
   final bool listening;
+  final bool micOpen;
   final String heard;
 
   /// A short note (e.g. "GT cleared"), shown in place of the top line.
@@ -459,7 +583,7 @@ class _Display extends StatelessWidget {
         ],
       ),
       child: listening
-          ? _ListeningPanel(heard: heard)
+          ? _ListeningPanel(heard: heard, open: micOpen)
           : Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -628,9 +752,10 @@ class _MessageChip extends StatelessWidget {
 
 /// Shown in the display while the microphone is on.
 class _ListeningPanel extends StatelessWidget {
-  const _ListeningPanel({required this.heard});
+  const _ListeningPanel({required this.heard, required this.open});
 
   final String heard;
+  final bool open;
 
   @override
   Widget build(BuildContext context) {
@@ -645,10 +770,16 @@ class _ListeningPanel extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Listening…',
-                  key: Key('calc-listening'),
-                  style: TextStyle(
+                Text(
+                  !open
+                      ? 'Getting ready…'
+                      : heard.isEmpty
+                      ? 'Speak now'
+                      : heard == '…'
+                      ? 'Working it out…'
+                      : 'Listening…',
+                  key: const Key('calc-listening'),
+                  style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 17,
                     fontWeight: FontWeight.w700,

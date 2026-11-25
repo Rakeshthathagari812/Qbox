@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../calculator/voice_services.dart';
 import '../udhaar/udhaar_models.dart' show newClientRef;
 import '../udhaar/udhaar_widgets.dart';
 import '../widgets/whatsapp_icon.dart';
@@ -234,7 +235,7 @@ class _NoteScreenState extends State<NoteScreen> with VoiceWords, WidgetsBinding
                     Row(
                       children: [
                         Expanded(child: Align(alignment: Alignment.centerLeft, child: voiceChip())),
-                        micButton(() => speak(_heardWords)),
+                        micButton(() => speak(_heardWords, pace: const VoicePace.relaxed())),
                       ],
                     ),
                   ],

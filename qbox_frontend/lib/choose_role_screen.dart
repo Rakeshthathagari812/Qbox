@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'widgets/qbox_brand.dart';
@@ -5,6 +7,7 @@ import 'widgets/qbox_brand.dart';
 import 'customer_home_screen.dart';
 import 'onboarding_draft.dart';
 import 'profile/log_out.dart';
+import 'services/app_services.dart';
 import 'shop_home_screen.dart';
 import 'supplier_home_screen.dart';
 import 'widgets/qbox_wave.dart';
@@ -13,8 +16,25 @@ import 'widgets/signup_motion.dart';
 import 'widgets/signup_route.dart';
 
 /// Shown after login. Only the roles picked during signup are listed.
-class ChooseRoleScreen extends StatelessWidget {
+class ChooseRoleScreen extends StatefulWidget {
   const ChooseRoleScreen({super.key});
+
+  @override
+  State<ChooseRoleScreen> createState() => _ChooseRoleScreenState();
+}
+
+class _ChooseRoleScreenState extends State<ChooseRoleScreen> {
+  bool _reminded = false;
+
+  /// Just logged in, or QBOX was opened: calendar reminders are set again.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_reminded) return;
+    _reminded = true;
+    final services = context.getInheritedWidgetOfExactType<ServicesScope>()?.services;
+    if (services != null) unawaited(services.calendar.remindAgain(OnboardingScope.of(context).orderedRoles()));
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -39,6 +39,8 @@ class TranslateIn(_In):
     text: Annotated[str, Field(min_length=1, max_length=1000)]
     source: Language
     target: Language
+    # A spoken command, where a quick answer matters more than fine wording.
+    fast: bool = False
 
 
 class SpeechIn(_In):
@@ -123,7 +125,7 @@ def translate(body: TranslateIn, m: Models = Depends(models)):
     text = body.text.strip()
     if not text:
         raise Problem(400, "INVALID_INPUT", "Nothing to translate")
-    return TextOut(text=_run(lambda: m.translate(text, body.source, body.target)))
+    return TextOut(text=_run(lambda: m.translate(text, body.source, body.target, body.fast)))
 
 
 @app.post("/speech-to-text", response_model=TextOut, dependencies=[Depends(check_key)])

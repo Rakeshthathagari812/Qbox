@@ -78,7 +78,7 @@ SpokenUdhaar? parseSpokenUdhaar(String spoken, List<UdhaarCustomer> customers) {
   var best = 0;
   var matches = <UdhaarCustomer>[];
   for (final c in customers) {
-    final hit = _nameHits(c.name, words);
+    final hit = nameHits(c.name, words);
     if (hit.isEmpty) continue;
     if (hit.length > best) {
       best = hit.length;
@@ -88,7 +88,7 @@ SpokenUdhaar? parseSpokenUdhaar(String spoken, List<UdhaarCustomer> customers) {
     }
   }
   for (final c in matches) {
-    nameWordIndexes.addAll(_nameHits(c.name, words));
+    nameWordIndexes.addAll(nameHits(c.name, words));
   }
   final firstNameAt = nameWordIndexes.isEmpty
       ? -1
@@ -151,7 +151,7 @@ List<UdhaarCustomer> customersIn(String text, List<UdhaarCustomer> customers) {
   var best = 0;
   var matches = <UdhaarCustomer>[];
   for (final c in customers) {
-    final hits = _nameHits(c.name, words).length;
+    final hits = nameHits(c.name, words).length;
     if (hits == 0) continue;
     if (hits > best) {
       best = hits;
@@ -177,7 +177,7 @@ int? digitsAmount(String text) {
 
 /// Positions of [words] that match a word of [name] (allowing one wrong
 /// letter in longer names, since speech recognition often misspells them).
-Set<int> _nameHits(String name, List<String> words) {
+Set<int> nameHits(String name, List<String> words) {
   final parts = name
       .toLowerCase()
       .split(RegExp(r'[^a-z]+'))

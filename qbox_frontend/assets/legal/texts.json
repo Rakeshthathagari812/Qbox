@@ -24,6 +24,7 @@
     "What the app uses on your phone, and only when you ask",
     [
      "Microphone: to write by voice. For Indian languages the recording goes to the QBOX server, is turned into words, and is not kept. For English, or without internet, your phone's own speech service is used.",
+     "Ask QBOX: your question is answered on your phone from your own records. If it is not understood in an Indian language, the words go to the QBOX server to be translated, and are not kept.",
      "Camera and gallery: to scan a QR, or to choose your photo.",
      "Contacts: only the one person you pick. Your contact list is not read or uploaded.",
      "Notifications: for reminders you set.",
@@ -189,6 +190,12 @@
     "It says offline",
     [
      "Check your internet, then pull down to refresh. What you wrote offline is kept on the phone and sent by itself when internet is back. Do not log out before that."
+    ]
+   ],
+   [
+    "Ask QBOX",
+    [
+     "Tap the mic on the home page and ask, for example: Who owes me the most? It answers from your own records, in your language. It fills in forms, but never saves, pays or deletes: you check and tap Save. It can make mistakes, so look at the record too."
     ]
    ],
    [

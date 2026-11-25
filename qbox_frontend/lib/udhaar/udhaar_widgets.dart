@@ -373,7 +373,7 @@ class UdBottomButtons extends StatelessWidget {
                       key: leftKey,
                       onPressed: onLeft,
                       icon: Icon(leftIcon),
-                      label: Text(leftLabel, maxLines: 1),
+                      label: FittedBox(fit: BoxFit.scaleDown, child: Text(leftLabel, maxLines: 1)),
                       style: FilledButton.styleFrom(
                         backgroundColor: leftColor,
                         shape: shape,
@@ -384,7 +384,7 @@ class UdBottomButtons extends StatelessWidget {
                       key: leftKey,
                       onPressed: onLeft,
                       icon: Icon(leftIcon),
-                      label: Text(leftLabel, maxLines: 1),
+                      label: FittedBox(fit: BoxFit.scaleDown, child: Text(leftLabel, maxLines: 1)),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: leftColor,
                         backgroundColor: leftColor.withValues(alpha: 0.08),
@@ -403,7 +403,7 @@ class UdBottomButtons extends StatelessWidget {
                 key: rightKey,
                 onPressed: onRight,
                 icon: Icon(rightIcon),
-                label: Text(rightLabel, maxLines: 1),
+                label: FittedBox(fit: BoxFit.scaleDown, child: Text(rightLabel, maxLines: 1)),
                 style: FilledButton.styleFrom(
                   backgroundColor: rightColor,
                   shape: shape,

@@ -21,6 +21,8 @@ class TranslateIn(CamelModel):
     text: Annotated[str, Field(max_length=MAX_TEXT), needs("Enter something to translate")]
     source: Language
     target: Language
+    # A spoken command: a quick answer matters more than fine wording.
+    fast: bool = False
 
     @model_validator(mode="after")
     def different_languages(self):
