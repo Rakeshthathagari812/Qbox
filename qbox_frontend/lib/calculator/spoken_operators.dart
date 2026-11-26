@@ -24,6 +24,10 @@ const _words = <AppLanguage, Map<String, String>>{
     'కలుపు': _plus,
     'కలిపి': _plus,
     'కలిపితే': _plus,
+    'కలపాలి': _plus,
+    'కలపండి': _plus,
+    'మరియు': _plus,
+    'ఇంకా': _plus,
     'మైనస్': _minus,
     'మైనస్సు': _minus,
     'తీసివేత': _minus,
@@ -33,12 +37,19 @@ const _words = <AppLanguage, Map<String, String>>{
     'ఇంటూ': _times,
     'ఇన్టు': _times,
     'గుణించు': _times,
+    'గుణించి': _times,
+    'గుణించాలి': _times,
+    'గుణించండి': _times,
+    'హెచ్చవేత': _times,
     'గుణిస్తే': _times,
     'గుణకారం': _times,
     'సార్లు': _times,
     'టైమ్స్': _times,
     'బై': _divide,
     'భాగించు': _divide,
+    'భాగించి': _divide,
+    'భాగించాలి': _divide,
+    'భాగించండి': _divide,
     'భాగిస్తే': _divide,
     'భాగహారం': _divide,
     'డివైడ్': _divide,
@@ -51,6 +62,10 @@ const _words = <AppLanguage, Map<String, String>>{
     'जोड़': _plus,
     'जोडो': _plus,
     'जोड़ो': _plus,
+    'जोड़ें': _plus,
+    'जोडें': _plus,
+    'जोड़कर': _plus,
+    'और': _plus,
     'माइनस': _minus,
     'मायनस': _minus,
     'घटा': _minus,
@@ -60,6 +75,7 @@ const _words = <AppLanguage, Map<String, String>>{
     'इनटू': _times,
     'गुणा': _times,
     'गुना': _times,
+    'गुणे': _times,
     'टाइम्स': _times,
     'बाय': _divide,
     'बाई': _divide,
@@ -112,10 +128,24 @@ const _words = <AppLanguage, Map<String, String>>{
   },
 };
 
+/// "From 500 take away 120", said the Telugu/Hindi way, with the numbers first
+/// read as digits: "500 లో 120 తీసివేయి", "500 में से 120 घटाओ" -> "500 - 120".
+final _takeFrom = <AppLanguage, RegExp>{
+  AppLanguage.telugu: RegExp(
+    r'^(.+?)\s*(?:లో\s*నుంచి|లో\s*నుండి|లోంచి|లోనుంచి|లోనుండి|లో)\s+(.+?)\s+'
+    r'(?:తీసివేయి|తీసేయి|తీసివేస్తే|తీసేస్తే|తీసివేయండి|తీసెయ్|తీసివెయ్|మైనస్)\s*$',
+  ),
+  AppLanguage.hindi: RegExp(
+    r'^(.+?)\s*(?:में\s*से|मे\s*से)\s+(.+?)\s+(?:घटाओ|घटा|घटाएं|घटाइए|कम\s*करो|कम|निकालो|निकाल\s*दो|माइनस)\s*$',
+  ),
+};
+
 /// [text] with the calculator words of [language] written as + − × ÷ / percent.
 String operatorsToSymbols(String text, AppLanguage language) {
   final words = _words[language];
   if (words == null) return text;
+  final from = _takeFrom[language]?.firstMatch(text.trim());
+  if (from != null) text = '${from[1]} - ${from[2]}';
   return text
       .replaceAllMapped(RegExp(r'\S+'), (m) {
         final word = m[0]!;

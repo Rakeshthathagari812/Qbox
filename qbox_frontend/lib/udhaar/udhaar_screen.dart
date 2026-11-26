@@ -102,17 +102,26 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
     if (english == null) return (null, null);
     final fromEnglish = parseSpokenUdhaar(english, customers);
     var matches = fromEnglish?.matches ?? const <UdhaarCustomer>[];
-    if (matches.isEmpty) matches = customersIn(transliterate(words), customers);
+    var sure = fromEnglish?.sure ?? true;
+    var name = fromEnglish?.spokenName ?? '';
+    if (matches.isEmpty) {
+      final latin = transliterate(words);
+      matches = customersIn(latin, customers);
+      sure = namedExactly(latin, matches);
+      name = sure ? '' : heardName(latin, matches);
+    }
     // The amount read on the phone ("రెండు వందల యాభై" -> 250) is the most
     // reliable; the translation is only used when that finds no single amount.
     final amount = digitsAmount(numbersToDigits(words, _voiceLang)) ?? fromEnglish?.amountPaise;
     if (matches.isEmpty && amount == null) return (null, english);
     return (
       SpokenUdhaar(
-        kind: fromEnglish?.kind ?? EntryKind.credit,
+        // Which way is read from the Telugu/Hindi words first: translation mixes it up.
+        kind: nativeKind(words, _voiceLang) ?? fromEnglish?.kind ?? EntryKind.credit,
         amountPaise: amount,
         matches: matches,
-        spokenName: matches.isEmpty ? (fromEnglish?.spokenName ?? '') : '',
+        spokenName: matches.isEmpty || !sure ? name : '',
+        sure: sure,
       ),
       english,
     );
@@ -268,10 +277,11 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
         return;
       }
       UdhaarCustomer? customer;
-      if (spoken.matches.length == 1) {
+      if (spoken.matches.length == 1 && spoken.sure) {
         customer = spoken.matches.single;
-      } else if (spoken.matches.length > 1) {
-        customer = await _whichCustomer(spoken.matches);
+      } else if (spoken.matches.isNotEmpty) {
+        // Several, or a name that only sounds like one in the book ("Rajesh" / Ramesh).
+        customer = await _whichCustomer(spoken.matches, newName: spoken.sure ? null : spoken.spokenName);
       } else {
         customer = await _offerNewCustomer(spoken.spokenName);
       }
@@ -285,11 +295,13 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
     }
   }
 
-  Future<UdhaarCustomer?> _whichCustomer(List<UdhaarCustomer> matches) {
-    return showDialog<UdhaarCustomer>(
+  /// [newName]: the name heard only sounds like [matches]; it may be a new customer.
+  Future<UdhaarCustomer?> _whichCustomer(List<UdhaarCustomer> matches, {String? newName}) async {
+    const addNew = 'new';
+    final picked = await showDialog<Object>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Which customer?'),
+        title: Text(newName == null ? 'Which customer?' : 'Heard "$newName". Which customer?'),
         children: [
           for (final c in matches)
             SimpleDialogOption(
@@ -311,9 +323,24 @@ class _UdhaarScreenState extends State<UdhaarScreen> {
                 ],
               ),
             ),
+          if (newName != null && newName.isNotEmpty)
+            SimpleDialogOption(
+              key: const Key('voice-pick-new'),
+              onPressed: () => Navigator.of(context).pop(addNew),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_add_alt_1_rounded, color: udPurple),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text('Add "$newName" as a new customer', style: udText(15, weight: FontWeight.w700))),
+                ],
+              ),
+            ),
         ],
       ),
     );
+    if (picked is UdhaarCustomer) return picked;
+    if (picked == addNew && mounted) return _addCustomer(name: newName!);
+    return null;
   }
 
   Future<UdhaarCustomer?> _offerNewCustomer(String name) async {

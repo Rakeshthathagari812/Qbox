@@ -27,6 +27,26 @@ bool _isSum(String sum) => sum.contains(percent) || sum.split('').skip(1).any(op
 
 String _digits(String sum) => sum.replaceAll(RegExp(r'[^0-9]'), '');
 
+List<double> _numbersIn(String text) =>
+    RegExp(r'[0-9]+(?:\.[0-9]+)?').allMatches(text).map((m) => double.parse(m[0]!)).toList()..sort();
+
+/// The sum in the English translation of [words], only when it can be trusted:
+/// it is a sum, and it has the same numbers the phone read in [words].
+/// Translation can change a sum: "వంద గుణించి మూడు" (100 × 3) came back as
+/// "one hundred and three", and "1000 భాగించు 4" as "four thousand divided by four".
+String? trustedTranslation(String english, String words, AppLanguage language) {
+  final sum = parseSpokenMath(english);
+  if (sum == null || !_isSum(sum)) return null;
+  final heard = _numbersIn(mathText(words, language));
+  if (heard.isEmpty) return sum;
+  final got = _numbersIn(sum);
+  if (got.length != heard.length) return null;
+  for (var i = 0; i < got.length; i++) {
+    if (got[i] != heard[i]) return null;
+  }
+  return sum;
+}
+
 /// [words], or one of the phone's other [guesses] when that is a sum and [words]
 /// is not ("2030" was "20 + 30").
 String? bestSum(String words, List<String> guesses, AppLanguage language, {double? last}) {

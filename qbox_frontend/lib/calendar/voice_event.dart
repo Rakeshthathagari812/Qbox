@@ -158,12 +158,12 @@ EventDraft? parseSpokenEvent(
 
   // ---- repeats ----
   text = take(
-    RegExp(r'\b(?:every ?day|daily)\b'),
+    RegExp(r'\b(?:every ?day|each day|daily)\b'),
     (_) => repeat = Repeat.daily,
   );
   text = take(
     RegExp(
-      r'\bevery (monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
+      r'\b(?:every|each) (monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b',
     ),
     (m) {
       repeat = Repeat.weekly;
@@ -171,21 +171,28 @@ EventDraft? parseSpokenEvent(
     },
   );
   text = take(
-    RegExp(r'\b(?:every week|weekly)\b'),
+    RegExp(r'\b(?:(?:every|each) week|weekly)\b'),
     (_) => repeat = Repeat.weekly,
   );
+  void monthly(String? domText) {
+    repeat = Repeat.monthly;
+    final dom = int.tryParse(domText ?? '');
+    if (dom != null && dom >= 1 && dom <= 31) {
+      day = _nextDayOfMonth(today, dom);
+    }
+  }
+
+  // "on the 5th of each month" (how a Telugu/Hindi "ప్రతి నెల 5వ తేదీ" is translated)
   text = take(
-    RegExp(r'\b(?:every month|monthly)(?: on)?(?: the)? ?(\d{1,2})?\b'),
-    (m) {
-      repeat = Repeat.monthly;
-      final dom = int.tryParse(m[1] ?? '');
-      if (dom != null && dom >= 1 && dom <= 31) {
-        day = _nextDayOfMonth(today, dom);
-      }
-    },
+    RegExp(r'\b(?:on )?(?:the )?(\d{1,2}) (?:of )?(?:every|each) month\b'),
+    (m) => monthly(m[1]),
   );
   text = take(
-    RegExp(r'\b(?:every year|yearly|annually)\b'),
+    RegExp(r'\b(?:(?:every|each) month|monthly|per month)(?: on)?(?: the)? ?(\d{1,2})?\b'),
+    (m) => monthly(m[1]),
+  );
+  text = take(
+    RegExp(r'\b(?:(?:every|each) year|yearly|annually)\b'),
     (_) => repeat = Repeat.yearly,
   );
 
@@ -298,6 +305,7 @@ EventDraft? parseSpokenEvent(
       )
       .trim();
   if (title.isEmpty) title = 'Reminder';
+  title = _keepCapitals(title, spoken);
   title = title[0].toUpperCase() + title.substring(1);
 
   var eventDay = day ?? today;
@@ -323,8 +331,23 @@ EventDraft? parseSpokenEvent(
   );
 }
 
+/// Names keep their capitals: "call Ravi" stays "Call Ravi", not "Call ravi".
+/// The first word said is skipped (it has a capital only for starting the sentence).
+String _keepCapitals(String title, String spoken) {
+  final cased = <String, String>{};
+  final said = spoken.trim().split(RegExp(r'\s+'));
+  for (final w in said.skip(1)) {
+    final word = w.replaceAll(RegExp(r'[^A-Za-z]'), '');
+    if (word.length > 1 && word != word.toLowerCase() && word != word.toUpperCase()) cased[word.toLowerCase()] = word;
+  }
+  if (cased.isEmpty) return title;
+  return title.split(' ').map((w) => cased[w] ?? w).join(' ');
+}
+
 String _normalise(String spoken) {
   var t = spoken.toLowerCase();
+  // "3: 10 p.m" (how a translation sometimes writes 3:10) -> "3:10 p.m"
+  t = t.replaceAllMapped(RegExp(r'\b(\d{1,2}):\s+(\d{2})\b'), (m) => '${m[1]}:${m[2]}');
   t = t
       .replaceAll(RegExp(r'\ba\.m\.?'), 'am')
       .replaceAll(RegExp(r'\bp\.m\.?'), 'pm');

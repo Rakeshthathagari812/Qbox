@@ -123,6 +123,15 @@ int? _read(String? text) {
       tryOne('\\b(?:at )?(\\d{1,2})(\\d{2}) ?(am|pm)$_part\\b', (m) => _two(m[1], m[2], m[3], m[4])) ||
       tryOne('\\b(?:at|by|for|around) (\\d{1,2})(\\d{2})\\b$_notThings$_part', (m) => _two(m[1], m[2], null, m[3])) ||
       tryOne('\\b(?:reminder|me) (\\d{1,2})(\\d{2})(?=\\s*\$)', (m) => _two(m[1], m[2], null, null)) ||
+      // 12 noon, 12 midnight
+      tryOne(r'\b(?:at )?12 noon\b', (_) => const SpokenTime(12 * 60, sure: true)) ||
+      tryOne(r'\b(?:at )?12 midnight\b', (_) => const SpokenTime(0, sure: true)) ||
+      // evening 7, evening at 7; 7 in the evening
+      tryOne(
+        '\\b(?:in the )?(morning|afternoon|evening|night) (?:at )?$_hour\\b(?! ?[:.]\\d)$_notThings',
+        (m) => clockTime(_read(m[2])!, 0, null, m[1]),
+      ) ||
+      tryOne('\\b(?:at )?$_hour (?:in the )?(morning|afternoon|evening|night)\\b', (m) => clockTime(_read(m[1])!, 0, null, m[2])) ||
       // 3 pm, 3 oclock
       tryOne('\\b(?:at )?$_hour ?(am|pm|oclock)$_part\\b', (m) => clockTime(_read(m[1])!, 0, m[2] == 'oclock' ? null : m[2], m[3])) ||
       // at 5

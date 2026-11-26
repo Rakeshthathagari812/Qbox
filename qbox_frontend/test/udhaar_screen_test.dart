@@ -278,6 +278,20 @@ void main() {
     expect(find.text('Mahesh'), findsOneWidget); // name already filled in
   });
 
+  testWidgets('voice: a name that only sounds like one in the book -> asks, can add the new one', (tester) async {
+    final api = FakeUdhaarApi();
+    final ramesh = api.seed('Ramesh', '9876543210');
+    final voice = FakeVoiceInput()..nextWords = 'Rajesh 300 udhaar';
+    await openBook(tester, fakeServices(udhaar: api, voice: voice));
+
+    await tapKey(tester, 'udhaar-speak');
+    expect(find.text('Heard "Rajesh". Which customer?'), findsOneWidget);
+    expect(find.byKey(Key('voice-pick-${ramesh.id}')), findsOneWidget);
+    await tapKey(tester, 'voice-pick-new');
+    expect(find.text('Add customer'), findsWidgets);
+    expect(find.text('Rajesh'), findsOneWidget); // not Ramesh
+  });
+
   testWidgets('My Udhaar: the customer sees each shop and their history', (tester) async {
     final api = FakeUdhaarApi();
     api.books.addAll(const [

@@ -271,8 +271,11 @@ void main() {
         english: 'Teja paid 500',
       );
       expect(paid.text, 'Teja ఇచ్చింది: ₹500. చూసి సేవ్ చేయండి.');
-      // Not translated: it asks instead of guessing.
-      final unsure = await ask(QboxRole.business, 'తేజ 500 ఇచ్చాడు', language: AppLanguage.telugu);
+      // Not translated: "ఇచ్చాడు" (he gave) itself says it is a payment.
+      final read = await ask(QboxRole.business, 'తేజ 500 ఇచ్చాడు', language: AppLanguage.telugu);
+      expect(read.text, 'Teja ఇచ్చింది: ₹500. చూసి సేవ్ చేయండి.');
+      // The words do not say which way, and no translation: it asks instead of guessing.
+      final unsure = await ask(QboxRole.business, 'తేజ 500', language: AppLanguage.telugu);
       expect(unsure.action, isNull);
       expect([for (final r in unsure.rows) r.title], ['ఉధార్ ఇచ్చాను', 'చెల్లింపు వచ్చింది']);
     });

@@ -157,7 +157,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       translator: _app.translator,
       onError: _notify,
     );
-    return (english == null ? null : parseSpokenMath(english)) ?? parseSpokenMath(words);
+    return (english == null ? null : trustedTranslation(english, words, _voiceLang)) ?? parseSpokenMath(words);
   }
 
   /// Shows a short message inside the display (never over the keys).

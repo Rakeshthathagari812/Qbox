@@ -90,8 +90,12 @@ bool endsWithOperator(String spoken) {
   return words.length > 1 && (words.last == 'of' || _operatorWords.containsKey(words.last));
 }
 
+/// "subtract 120 from 500", "take 120 from 500" -> "500 minus 120".
+final _takeFrom = RegExp(r'^\s*(?:please\s+)?(?:subtract|remove|take away|take|deduct|minus|less)\s+(.+?)\s+from\s+(.+?)\s*$');
+
 String? parseSpokenMath(String spoken) {
-  final words = _words(spoken);
+  final from = _takeFrom.firstMatch(spoken.toLowerCase());
+  final words = _words(from == null ? spoken : '${from[2]} minus ${from[1]}');
   final parts = <Object>[]; // double (number), String (operator) or percent
   final number = _NumberWords();
 
@@ -141,7 +145,14 @@ String? parseSpokenMath(String spoken) {
       number.add(literal);
       continue;
     }
-    if (word == 'and') continue; // "two hundred and fifty"
+    if (word == 'and') {
+      // "two hundred and fifty" is one number; "twenty and thirty" is a sum.
+      if (number.started && number.endsOnValue && _isNumberWord(next)) {
+        flush();
+        parts.add(plus);
+      }
+      continue;
+    }
 
     // Anything else ends the number being spoken.
     flush();

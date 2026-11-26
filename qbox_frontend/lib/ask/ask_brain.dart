@@ -186,7 +186,8 @@ class AskBrain {
         final said = _lang == AppLanguage.english || digitsAmount(text) == null ? text : await english?.call();
         final spoken = said == null ? null : parseSpokenUdhaar(said, customers);
         final amount = digitsAmount(text) ?? spoken?.amountPaise;
-        if (amount != null) return _entry(spoken?.kind, customers, amount, text);
+        // Which way: read from the Telugu/Hindi words first (translation mixes it up).
+        if (amount != null) return _entry(nativeKind(text, _lang) ?? spoken?.kind, customers, amount, text);
         return _customersOwe(customers);
       }
 
