@@ -26,13 +26,17 @@ class InfoOut(CamelModel):
     support_name: str | None
     support_phone: str | None
     support_email: str | None
+    # The app must be at least this build (0 = any); where to get it.
+    min_build: int
+    update_url: str | None
 
 
 @router.get("/api/info", response_model=InfoOut, summary="How to reach QBOX")
 def info():
     s = get_settings()
     return InfoOut(support_name=s.support_name or None, support_phone=s.support_phone or None,
-                   support_email=s.support_email or None)
+                   support_email=s.support_email or None, min_build=s.app_min_build,
+                   update_url=s.app_update_url or None)
 
 
 @router.get("/privacy", response_class=HTMLResponse, include_in_schema=False)

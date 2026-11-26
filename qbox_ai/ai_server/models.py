@@ -7,6 +7,8 @@ PyTorch and transformers are only imported when a model is loaded, so the
 server's tests run without them.
 """
 
+import hashlib
+import json
 import logging
 import os
 import threading
@@ -15,6 +17,7 @@ from pathlib import Path
 # The server only uses the models download_models.py fetched (pinned versions):
 # it never goes online to fetch new model code by itself.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 from ai_server import indic_text
 from ai_server.audio import TARGET_RATE, clean, read_wav
@@ -30,6 +33,33 @@ REPOS = {
     "indic-indic": ("ai4bharat/indictrans2-indic-indic-dist-320M", "ffb7582b6d43791f1fb26b2153fc065f2e9ea575"),
     "speech": ("ai4bharat/indic-conformer-600m-multilingual", "2a77d305038dfc502fd9464e7d028b90381976cb"),
 }
+
+
+# The models come with Python code, which runs when they are loaded. It must be
+# exactly the code that was checked: the fingerprints are kept in Git.
+_CODE = Path(__file__).with_name("model_code.json")
+
+
+class ModelChanged(Exception):
+    """A model's code is not the code that was checked."""
+
+
+def check_code(path: Path) -> None:
+    """Refuses a model whose code was changed, added to, or comes as a pickle
+    (which could run anything when it is opened)."""
+    expected: dict[str, str] = json.loads(_CODE.read_text(encoding="utf-8")).get(path.name, {})
+    if not expected:
+        raise ModelChanged(f"{path.name}: no fingerprints are kept for this model")
+    found = {p.relative_to(path).as_posix() for p in path.rglob("*.py") if ".cache" not in p.parts}
+    if extra := sorted(found - set(expected)):
+        raise ModelChanged(f"{path.name}: unexpected code {extra}")
+    for name, fingerprint in expected.items():
+        file = path / name
+        if not file.exists() or hashlib.sha256(file.read_bytes()).hexdigest() != fingerprint:
+            raise ModelChanged(f"{path.name}: {name} is not the checked version")
+    pickles = [p.name for pattern in ("*.bin", "*.pkl", "*.pickle", "*.ckpt", "*.pth") for p in path.rglob(pattern)]
+    if pickles:
+        raise ModelChanged(f"{path.name}: unexpected files {sorted(pickles)[:3]}")
 
 
 def model_path(models_dir: Path, name: str) -> Path:
@@ -151,6 +181,7 @@ class Models:
                 path = model_path(self.settings.models_dir, name)
                 if not (path / "config.json").exists():
                     raise ModelMissing(name)
+                check_code(path)
                 log.info("Loading %s ...", name)
                 if name == "speech":
                     model = _SpeechModel(path, self.settings.asr_decoding)

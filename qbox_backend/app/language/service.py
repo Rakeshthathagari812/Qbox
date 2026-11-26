@@ -6,6 +6,8 @@ several backend processes, move the count to the database.
 """
 
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 
 from app.config import get_settings
@@ -39,15 +41,37 @@ def forget_counts() -> None:
         _used.clear()
 
 
+_now = 0
+_now_lock = threading.Lock()
+
+
+@contextmanager
+def _a_place() -> Iterator[None]:
+    """Only so many at the same moment: the rest of QBOX must stay quick."""
+    global _now
+    with _now_lock:
+        if _now >= get_settings().language_at_once:
+            # The app then uses the phone's own speech and translation.
+            raise ApiError(503, "LANGUAGE_OFF", "Online speech is very busy right now. Please try again")
+        _now += 1
+    try:
+        yield
+    finally:
+        with _now_lock:
+            _now -= 1
+
+
 def is_online(ai: AiClient) -> bool:
     return ai.is_up()
 
 
 def translate(user: User, ai: AiClient, text: str, source: str, target: str, fast: bool = False) -> str:
-    count_request(user)
-    return ai.translate(text.strip(), source, target, fast)
+    with _a_place():
+        count_request(user)
+        return ai.translate(text.strip(), source, target, fast)
 
 
 def speech_to_text(user: User, ai: AiClient, audio_base64: str, language: str, sampling_rate: int) -> str:
-    count_request(user)
-    return ai.speech_to_text(audio_base64, language, sampling_rate)
+    with _a_place():
+        count_request(user)
+        return ai.speech_to_text(audio_base64, language, sampling_rate)

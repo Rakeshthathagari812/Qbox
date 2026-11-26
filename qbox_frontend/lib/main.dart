@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'onboarding_draft.dart';
 import 'phone_stage.dart';
+import 'services/api_config.dart';
 import 'services/app_services.dart';
 import 'splash_screen.dart';
 import 'startup_gate.dart';
@@ -16,6 +18,24 @@ void main() {
       statusBarBrightness: Brightness.light,
     ),
   );
+  final problem = apiUrlProblem(qboxApiBaseUrl(), release: kReleaseMode);
+  if (problem != null) {
+    // Made wrongly: it must not send anyone's PIN anywhere.
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text('QBOX cannot start: $problem.', textAlign: TextAlign.center),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
+  }
   runApp(QboxApp(services: AppServices.live(), showSplash: true));
 }
 

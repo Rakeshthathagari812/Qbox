@@ -19,7 +19,7 @@ From this folder (`QBOX\qbox_ai`):
 python -m venv .venv
 $env:OPENSSL_CONF = "$PWD\network_fix.cnf"
 .venv\Scripts\python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install -r requirements.txt -c constraints.txt
 ```
 
 `network_fix.cnf`: the office network drops Python 3.14's newer secure-connection
@@ -62,10 +62,20 @@ account (email only, no documents):
 | Setting | Default | Meaning |
 |---|---|---|
 | `QBOX_AI_KEY` | dev key | Shared secret; must equal `QBOX_AI_KEY` in `qbox_backend/.env`. Change before going live |
+| `QBOX_AI_APP_ENV` | `dev` | `production` = refuses to start with the dev key |
 | `QBOX_AI_PRELOAD` | `true` | Load all models at start (else each on first use) |
 | `QBOX_AI_ASR_DECODING` | `rnnt` | `rnnt` = more accurate, `ctc` = faster |
 | `QBOX_AI_NUM_BEAMS` | `4` | Translation search width: higher = slightly better, slower |
 | `QBOX_AI_THREADS` | `0` | CPU threads (0 = automatic) |
+
+## Safety
+
+- The models come with Python code. Only the code whose fingerprint is in
+  `ai_server/model_code.json` is run; pickled weights are refused.
+- `transformers` 4 has known holes that are fixed only in version 5, which the models do not run on
+  (tried 2026-11-25). None of the affected parts (Trainer, downloading code, LightGlue, X-CLIP,
+  save_pretrained) is used here. Keep this server closed to the internet: only the QBOX backend
+  may reach it.
 
 ## Check it
 

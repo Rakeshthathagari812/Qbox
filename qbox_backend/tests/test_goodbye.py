@@ -187,7 +187,12 @@ def test_a_shop_keeps_its_account_when_a_supplier_leaves(client):
 
 def test_pages_and_contact(client, monkeypatch):
     empty = client.get("/api/info").json()
-    assert empty == {"supportName": None, "supportPhone": None, "supportEmail": None}
+    assert empty == {"supportName": None, "supportPhone": None, "supportEmail": None,
+                     "minBuild": 0, "updateUrl": None}
+    monkeypatch.setattr(get_settings(), "app_min_build", 7)
+    monkeypatch.setattr(get_settings(), "app_update_url", "https://play.google.com/x")
+    told = client.get("/api/info").json()
+    assert (told["minBuild"], told["updateUrl"]) == (7, "https://play.google.com/x")
     monkeypatch.setattr(get_settings(), "support_phone", "<1800>")
     for path, words in (("/privacy", "Privacy Policy"), ("/terms", "Terms of Use"), ("/delete-account", "Delete your QBOX account")):
         page = client.get(path)

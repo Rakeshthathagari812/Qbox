@@ -200,8 +200,85 @@ def test_huge_requests_are_refused_before_reading(client):
 def test_production_needs_a_private_ai_key():
     from app.config import DEV_AI_KEY, Settings, check_settings
 
-    base = dict(app_env="production", jwt_secret="x" * 40, otp_expose=False, payment_secret_key="p" * 40)
+    base = dict(app_env="production", jwt_secret="x" * 40, otp_expose=False, payment_secret_key="p" * 40,
+                support_email="help@example.com", database_url="postgresql+pg8000://qbox:private@db/qbox",
+                auth_requests_per_ip_10min=600, auth_wrong_per_ip_10min=60, auth_codes_per_ip_10min=60,
+                auth_requests_per_mobile_10min=20)
     with pytest.raises(ValueError, match="QBOX_AI_KEY"):
         check_settings(Settings(**base, ai_key=DEV_AI_KEY))
     check_settings(Settings(**base, ai_key="y" * 40))
     check_settings(Settings(**base, ai_url=""))  # switched off: no key needed
+
+
+def test_slow_speech_does_not_hold_database_connections(client):
+    """While many people speak, everything else must still find a connection."""
+    import threading
+
+    from app.database import engine
+    from app.language.ai_client import get_ai
+    from app.main import app
+
+    inside, go = threading.Semaphore(0), threading.Event()
+    held = []
+
+    class Slow:
+        def translate(self, *_):
+            held.append(engine.pool.checkedout())
+            inside.release()
+            go.wait(10)
+            return "x"
+
+    me = _account(client, "9876543210")
+    app.dependency_overrides[get_ai] = lambda: Slow()
+    body = {"text": "a", "source": "te", "target": "en"}
+    answers = []
+    threads = [threading.Thread(target=lambda: answers.append(
+        client.post("/api/language/translate", json=body, headers=me).status_code)) for _ in range(8)]
+    try:
+        for t in threads:
+            t.start()
+        for _ in threads:
+            assert inside.acquire(timeout=10)
+        assert engine.pool.checkedout() == 0
+        assert client.get("/api/me", headers=me).status_code == 200
+    finally:
+        go.set()
+        for t in threads:
+            t.join()
+        app.dependency_overrides.pop(get_ai, None)
+    assert answers == [200] * 8
+
+
+def test_too_many_at_once_are_told_at_once(client, monkeypatch):
+    import threading
+
+    from app.config import get_settings
+    from app.language.ai_client import get_ai
+    from app.main import app
+
+    monkeypatch.setattr(get_settings(), "language_at_once", 1)
+    inside, go = threading.Event(), threading.Event()
+
+    class Slow:
+        def translate(self, *_):
+            inside.set()
+            go.wait(10)
+            return "x"
+
+    me = _account(client, "9876543210")
+    app.dependency_overrides[get_ai] = lambda: Slow()
+    body = {"text": "a", "source": "te", "target": "en"}
+    first = []
+    thread = threading.Thread(target=lambda: first.append(
+        client.post("/api/language/translate", json=body, headers=me).status_code))
+    try:
+        thread.start()
+        assert inside.wait(10)
+        second = client.post("/api/language/translate", json=body, headers=me)
+        assert (second.status_code, second.json()["code"]) == (503, "LANGUAGE_OFF")
+    finally:
+        go.set()
+        thread.join()
+    assert first == [200]
+    assert client.post("/api/language/translate", json=body, headers=me).status_code == 200
+    app.dependency_overrides.pop(get_ai, None)

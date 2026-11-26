@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEV_JWT_SECRET = "qbox-dev-only-secret-change-me-before-going-live-2026"
 DEV_AI_KEY = "qbox-ai-dev-only-key-change-me"
 DEV_PAYMENT_KEY = "qbox-dev-only-payment-key-change-me-2026"
+DEV_DB_PASSWORD = "qbox_dev_2026"
 
 
 class Settings(BaseSettings):
@@ -23,7 +24,11 @@ class Settings(BaseSettings):
 
     # PostgreSQL connection. pg8000 is pure Python (no DLLs), so Windows Smart App
     # Control cannot block it.
-    database_url: str = "postgresql+pg8000://qbox:qbox_dev_2026@localhost:5432/qbox"
+    database_url: str = f"postgresql+pg8000://qbox:{DEV_DB_PASSWORD}@localhost:5432/qbox"
+    # Connections kept open, and how many more for a busy moment (per server process).
+    db_pool_size: int = 10
+    db_pool_extra: int = 20
+    db_pool_wait_seconds: int = 10
 
     # Login tokens. Development key only: set QBOX_JWT_SECRET (32+ characters) when going live.
     jwt_secret: str = DEV_JWT_SECRET
@@ -50,6 +55,9 @@ class Settings(BaseSettings):
     ai_key: str = DEV_AI_KEY
     # Speech + translation requests one person may make per day (protects the AI server).
     language_daily_limit: int = 600  # a spoken command may ask twice
+    # Speech and translation requests at the same moment; more are refused at once (the
+    # app then uses the phone's own) instead of making everything wait.
+    language_at_once: int = 12
 
     @property
     def ai_on(self) -> bool:
@@ -83,10 +91,22 @@ class Settings(BaseSettings):
     login_lock_minutes: int = 15
     login_long_lock_minutes: int = 24 * 60
 
-    # Login, OTP and PIN-reset requests one device (IP address) may make per 10 minutes,
-    # across all mobile numbers. Stops trying one easy PIN on thousands of numbers.
-    # 0 = off. Behind a proxy, start uvicorn with --proxy-headers so the real address is seen.
-    auth_requests_per_ip_10min: int = 30
+    # Login, OTP and PIN-reset limits per 10 minutes. 0 = off. Behind a proxy, start uvicorn
+    # with --proxy-headers so the real address is seen.
+    # Many people on mobile data share one address, so the limit for an address is high...
+    auth_requests_per_ip_10min: int = 600
+    # ...but few of them type a wrong PIN or code: this is what stops trying one easy PIN on
+    # thousands of numbers.
+    auth_wrong_per_ip_10min: int = 60
+    # New codes (each costs an SMS) asked for from one address.
+    auth_codes_per_ip_10min: int = 60
+    # One mobile number, from anywhere.
+    auth_requests_per_mobile_10min: int = 20
+
+    # The app: versions (build numbers) below this must update before they can be used.
+    # 0 = any. The link is where the Update button goes.
+    app_min_build: int = 0
+    app_update_url: str = ""
 
     @property
     def is_production(self) -> bool:
@@ -107,6 +127,16 @@ def check_settings(settings: Settings) -> Settings:
         if settings.payment_secret_key == DEV_PAYMENT_KEY or len(settings.payment_secret_key) < 32:
             raise ValueError("Set a private QBOX_PAYMENT_SECRET_KEY (32+ characters) in production. "
                              "Keep it safe: without it, saved Razorpay keys cannot be read")
+        if DEV_DB_PASSWORD in settings.database_url:
+            raise ValueError("Set QBOX_DATABASE_URL with a private password in production")
+        if not (settings.support_phone or settings.support_email):
+            raise ValueError("Set QBOX_SUPPORT_PHONE or QBOX_SUPPORT_EMAIL in production "
+                             "(the privacy policy needs a way to reach you)")
+        if settings.app_update_url and not settings.app_update_url.startswith("https://"):
+            raise ValueError("QBOX_APP_UPDATE_URL must start with https://")
+        if min(settings.auth_requests_per_ip_10min, settings.auth_wrong_per_ip_10min,
+               settings.auth_codes_per_ip_10min, settings.auth_requests_per_mobile_10min) <= 0:
+            raise ValueError("The login limits (QBOX_AUTH_...) must not be switched off in production")
         if settings.razorpay_key_id or settings.razorpay_key_secret:
             raise ValueError("Remove QBOX_RAZORPAY_KEY_ID/SECRET in production: "
                              "each shop connects its own Razorpay account")

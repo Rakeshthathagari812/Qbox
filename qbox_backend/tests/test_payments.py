@@ -466,3 +466,46 @@ def test_unreadable_saved_key_is_not_used(monkeypatch):
     stored = lock(SHOP_SECRET)
     monkeypatch.setattr(get_settings(), "payment_secret_key", "a-different-key-than-before-0123456789")
     assert unlock(stored) is None
+
+
+def test_razorpay_is_asked_without_holding_a_database_connection(client, world, test_account, monkeypatch):
+    """Razorpay can take 15 seconds: the connection must be free for others meanwhile."""
+    from app.database import engine
+
+    held = []
+    for name in ("create_qr", "create_order", "find_paid", "close", "check_keys"):
+        real = getattr(FakeRazorpay, name)
+
+        def spy(self, *args, _real=real, **kwargs):
+            held.append(engine.pool.checkedout())
+            return _real(self, *args, **kwargs)
+
+        monkeypatch.setattr(FakeRazorpay, name, spy)
+    shop = _account(client, "9876543210")
+    made = _collect(client, shop).json()
+    client.get(f"/api/payments/{made['id']}", headers=shop)
+    client.post(f"/api/payments/{made['id']}/cancel", headers=shop)
+    assert len(held) >= 3
+    assert set(held) == {0}
+
+
+def test_paid_while_it_is_being_cancelled_stays_paid(client, world, test_account, monkeypatch):
+    """Razorpay is asked, says "not paid"; before that is written down, another
+    request finds the payment paid. It must not be undone."""
+    from app.database import SessionLocal
+    from app.models import Payment
+
+    shop = _account(client, "9876543210")
+    made = _collect(client, shop).json()
+
+    def close(self, gateway, ref):
+        with SessionLocal() as other:
+            payment = other.get(Payment, made["id"])
+            payment.status = "PAID"
+            payment.paid_at = datetime.now(UTC)
+            other.commit()
+
+    monkeypatch.setattr(FakeRazorpay, "close", close)
+    after = client.post(f"/api/payments/{made['id']}/cancel", headers=shop).json()
+    assert after["status"] == "PAID"
+    assert client.get(f"/api/payments/{made['id']}", headers=shop).json()["status"] == "PAID"

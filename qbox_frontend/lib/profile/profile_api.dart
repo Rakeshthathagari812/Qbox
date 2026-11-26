@@ -32,6 +32,9 @@ abstract class ProfileApi {
 
   /// How to reach QBOX. No login needed.
   Future<SupportContact> support();
+
+  /// Which versions of the app may still be used. No login needed.
+  Future<AppVersions> versions();
 }
 
 class DeleteCheck {
@@ -52,6 +55,14 @@ class SupportContact {
   final String? email;
 
   bool get isEmpty => name == null && phone == null && email == null;
+}
+
+class AppVersions {
+  const AppVersions({this.minBuild = 0, this.updateUrl});
+
+  /// Older builds must update. 0 = any.
+  final int minBuild;
+  final String? updateUrl;
 }
 
 class HttpProfileApi implements ProfileApi {
@@ -128,6 +139,13 @@ class HttpProfileApi implements ProfileApi {
       phone: json['supportPhone'] as String?,
       email: json['supportEmail'] as String?,
     );
+  }
+
+  @override
+  Future<AppVersions> versions() async {
+    final json = await _api.get('/api/info', auth: false, timeout: const Duration(seconds: 6));
+    if (json is! Map<String, dynamic>) throw _bad;
+    return AppVersions(minBuild: json['minBuild'] as int? ?? 0, updateUrl: json['updateUrl'] as String?);
   }
 
   static QboxUser _user(Object? json) => json is Map<String, dynamic> ? QboxUser.fromJson(json) : throw _bad;

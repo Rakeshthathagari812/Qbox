@@ -160,7 +160,7 @@ They run against a separate `qbox_test` database, so real data is never touched.
 ```powershell
 python -m venv .venv
 $env:DISABLE_SQLALCHEMY_CEXT="1"
-.venv\Scripts\python -m pip install --no-binary SQLAlchemy -r requirements.txt
+.venv\Scripts\python -m pip install --no-binary SQLAlchemy -r requirements.txt -c constraints.txt
 .venv\Scripts\python -m alembic upgrade head
 ```
 
@@ -245,7 +245,7 @@ The phone -> this backend (login, daily limit) -> the AI server (`QBOX_AI_URL`, 
 `QBOX_AI_KEY` in `qbox_ai/.env`. When the AI server is not running, `/api/language/status`
 answers `{"online": false}` and the app uses the phone's own speech and translation.
 
-Each person may make 300 speech/translation requests a day (`QBOX_LANGUAGE_DAILY_LIMIT`).
+Each person may make 600 speech/translation requests a day (`QBOX_LANGUAGE_DAILY_LIMIT`).
 Set `QBOX_AI_URL=` (empty) to switch it off completely.
 
 ## Before going live
@@ -257,5 +257,9 @@ Set `QBOX_AI_URL=` (empty) to switch it off completely.
   - `QBOX_PAYMENT_SECRET_KEY` is a private random value (32+ characters). Keep a safe copy:
     without it, the saved Razorpay keys cannot be read and every shop must connect again
   - `QBOX_RAZORPAY_KEY_ID` / `QBOX_RAZORPAY_KEY_SECRET` are removed (each shop uses its own account)
-- Set a real `QBOX_DATABASE_URL` with a strong password
+- Set a real `QBOX_DATABASE_URL` with a strong password (the one for this PC is refused)
+- Set `QBOX_SUPPORT_PHONE` or `QBOX_SUPPORT_EMAIL` (refused without: the privacy policy needs it)
+- The login limits (`QBOX_AUTH_..._10MIN`) must stay on; behind a proxy start uvicorn with `--proxy-headers`
+- `QBOX_APP_MIN_BUILD` + `QBOX_APP_UPDATE_URL` (https): older app builds are asked to update
+- Install exactly the tested library versions: `pip install -r requirements.txt -c constraints.txt`
 - Serve over HTTPS only, behind a proxy (e.g. Nginx/Cloudflare) that also limits requests per IP address

@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.database import let_go
 from app.errors import ApiError
 from app.models import (
     CustomerProfile,
@@ -89,6 +90,7 @@ def set_upi(db: Session, user: User, body: UpiIn, gateways: Gateways) -> Payment
 def connect_razorpay(db: Session, user: User, body: RazorpayKeysIn, gateways: Gateways) -> PaymentSettingsOut:
     """Checks the keys with Razorpay first; the secret is then stored encrypted."""
     require(user, Role.BUSINESS)
+    let_go(db)
     gateways.make(body.key_id, body.key_secret).check_keys()
     row = settings_row(db, user)
     row.razorpay_key_id = body.key_id
@@ -131,6 +133,7 @@ def collect(db: Session, user: User, body: CollectIn, gateways: Gateways) -> Pay
     note = clean(body.note)
     expires = datetime.now(UTC) + timedelta(minutes=get_settings().payment_qr_minutes)
     description = f"{shop_name(db, user.id)}: {note or 'payment'}"[:80]
+    let_go(db)
     made = _make_qr(account, body.amount_paise, description, expires, {"qbox": "counter"})
     payment = Payment(
         shop_user_id=user.id,
@@ -152,6 +155,7 @@ def collect(db: Session, user: User, body: CollectIn, gateways: Gateways) -> Pay
         db.commit()
     except IntegrityError:  # the same request arrived twice at the same moment
         db.rollback()
+        let_go(db)
         account.close(made.gateway, made.ref)
         return out(db, by_client_ref(db, user.id, body.client_ref))
     return out(db, payment)
@@ -196,13 +200,12 @@ def cancel(db: Session, user: User, payment_id: int, gateways: Gateways) -> Paym
         return out(db, payment)
     account = _account_for(db, payment, gateways)
     if account is not None and payment.gateway:
+        let_go(db)
         paid = account.find_paid(Gateway(payment.gateway), payment.gateway_ref, payment.amount_paise)
         if paid is not None:
             return out(db, _mark_paid(db, payment.id, paid))
         account.close(Gateway(payment.gateway), payment.gateway_ref)
-    payment.status = PaymentStatus.CANCELLED.value
-    db.commit()
-    return out(db, payment)
+    return out(db, _still_waiting(db, payment.id, PaymentStatus.CANCELLED))
 
 
 def day_payments(db: Session, user: User, day: date | None, gateways: Gateways) -> PaymentsDayOut:
@@ -257,14 +260,16 @@ def pay_udhaar(db: Session, user: User, book_id: int, body: UdhaarPayIn, gateway
                        f"{shop} does not take online payments in QBOX yet. Please pay at the shop")
     check_rate(db, Payment.payer_user_id == user.id, CUSTOMER_REQUESTS_PER_10_MIN)
 
+    customer_id, owner = customer.id, customer.shop_user_id
+    let_go(db)
     order = account.create_order(body.amount_paise, f"qbox-{body.client_ref}",
-                                 {"qbox": "udhaar", "book": str(customer.id)})
+                                 {"qbox": "udhaar", "book": str(customer_id)})
     payment = Payment(
-        shop_user_id=customer.shop_user_id,
+        shop_user_id=owner,
         source=PaymentSource.UDHAAR.value,
         status=PaymentStatus.WAITING.value,
         amount_paise=body.amount_paise,
-        udhaar_customer_id=customer.id,
+        udhaar_customer_id=customer_id,
         payer_user_id=user.id,
         gateway=Gateway.ORDER.value,
         gateway_ref=order.ref,
@@ -299,6 +304,7 @@ def verify(db: Session, user: User, payment_id: int, body: VerifyIn, gateways: G
         log.warning("Payment %s: the payment screen's signature did not match", payment.id)
         raise ApiError(400, "PAYMENT_NOT_VERIFIED",
                        "This payment could not be checked. If money was taken, it will show here in a few minutes")
+    let_go(db)
     paid = account.payment(body.razorpay_payment_id)
     if paid is None or paid.order_id != payment.gateway_ref:
         return out(db, _refresh(db, payment, gateways, force=True))
@@ -346,13 +352,29 @@ def _refresh(db: Session, payment: Payment, gateways: Gateways, force: bool = Fa
         db.commit()
         return payment
     gateway = Gateway(payment.gateway)
+    let_go(db)
     paid = account.find_paid(gateway, payment.gateway_ref, payment.amount_paise)
     if paid is not None:
         return _mark_paid(db, payment.id, paid)
-    payment.checked_at = now
-    if payment.expires_at and now >= payment.expires_at:
+    over = bool(payment.expires_at and now >= payment.expires_at)
+    if over:
         account.close(gateway, payment.gateway_ref)
-        payment.status = PaymentStatus.EXPIRED.value
+    return _still_waiting(db, payment.id, PaymentStatus.EXPIRED if over else None, checked_at=now)
+
+
+def _still_waiting(db: Session, payment_id: int, status: PaymentStatus | None,
+                   checked_at: datetime | None = None) -> Payment:
+    """Ends a payment only if it is still waiting. Razorpay was asked meanwhile, and
+    another request may have found it paid: that must never be undone."""
+    payment = db.execute(
+        select(Payment).where(Payment.id == payment_id).with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
+    if payment.status == PaymentStatus.WAITING.value:
+        if status is not None:
+            payment.status = status.value
+        if checked_at is not None:
+            payment.checked_at = checked_at
     db.commit()
     return payment
 

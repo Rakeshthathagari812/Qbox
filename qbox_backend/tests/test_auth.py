@@ -2,8 +2,10 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import text
 
+from app.config import get_settings
 from app.database import engine
 
 MOBILE = "9876543210"
@@ -381,10 +383,20 @@ def test_production_refuses_development_settings():
     with pytest.raises(ValueError):
         check_settings(Settings(app_env="production", jwt_secret=strong))  # OTP still sent back to the app
     ready = {"app_env": "production", "jwt_secret": strong, "otp_expose": False, "ai_key": "y" * 40,
-             "payment_secret_key": "p" * 40}
+             "payment_secret_key": "p" * 40, "support_email": "help@example.com",
+             "database_url": "postgresql+pg8000://qbox:a-private-one@db/qbox", "auth_requests_per_ip_10min": 600,
+             "auth_wrong_per_ip_10min": 60, "auth_codes_per_ip_10min": 60, "auth_requests_per_mobile_10min": 20}
     check_settings(Settings(**ready))
     with pytest.raises(ValueError):  # still the development payment key
         check_settings(Settings(**{**ready, "payment_secret_key": Settings().payment_secret_key}))
+    for bad in (
+        {"database_url": "postgresql+pg8000://qbox:qbox_dev_2026@localhost:5432/qbox"},  # this PC's password
+        {"support_email": ""},  # nobody to write to
+        {"app_update_url": "http://example.com"},
+        {"auth_wrong_per_ip_10min": 0},  # limits switched off
+    ):
+        with pytest.raises(ValueError):
+            check_settings(Settings(**{**ready, **bad}))
     with pytest.raises(ValueError):  # one Razorpay account for every shop is not allowed
         check_settings(Settings(**ready, razorpay_key_id="rzp_live_abcdefgh12", razorpay_key_secret="s" * 24))
     assert not Settings(app_env="production", razorpay_key_id="rzp_test_x", razorpay_key_secret="y") \
@@ -432,3 +444,49 @@ def test_one_device_cannot_try_a_pin_on_many_numbers(client, monkeypatch):
         assert client.get("/health").status_code == 200
     finally:
         ratelimit.forget()
+
+
+@pytest.fixture
+def limits(monkeypatch):
+    """The login limits, switched on for one test."""
+    from app import ratelimit
+
+    def on(**values):
+        for name, value in values.items():
+            monkeypatch.setattr(get_settings(), name, value)
+
+    ratelimit.forget()
+    yield on
+    ratelimit.forget()
+
+
+def test_many_people_on_one_address_can_log_in(client, limits):
+    """Mobile networks share addresses: right logins do not use up the wrong tries."""
+    _register(client, roles=("CUSTOMER",))
+    limits(auth_wrong_per_ip_10min=3)
+    for _ in range(8):
+        assert _login(client).status_code == 200
+    for i in range(3):
+        assert client.post("/api/auth/login", json={"mobile": f"98765432{i:02d}", "pin": "1357"}).status_code == 401
+    blocked = client.post("/api/auth/login", json={"mobile": "9876543255", "pin": "1357"})
+    assert (blocked.status_code, blocked.json()["code"]) == (429, "TOO_MANY_REQUESTS")
+
+
+def test_wrong_codes_count_as_wrong_tries(client, limits):
+    limits(auth_wrong_per_ip_10min=2)
+    for _ in range(2):
+        r = client.post("/api/auth/otp/verify", json={"mobile": MOBILE, "purpose": "SIGNUP", "otp": "111111"})
+        assert r.status_code == 400
+    r = client.post("/api/auth/otp/send", json={"mobile": MOBILE, "purpose": "SIGNUP"})
+    assert r.status_code == 429
+
+
+def test_one_number_and_new_codes_are_limited(client, limits):
+    limits(auth_requests_per_mobile_10min=3, auth_codes_per_ip_10min=2)
+    for _ in range(3):
+        assert client.post("/api/auth/login", json={"mobile": MOBILE, "pin": "1357"}).status_code == 401
+    assert client.post("/api/auth/login", json={"mobile": MOBILE, "pin": "1357"}).status_code == 429
+    for i in range(2):
+        r = client.post("/api/auth/otp/send", json={"mobile": f"98111000{i:02d}", "purpose": "SIGNUP"})
+        assert r.status_code == 200
+    assert client.post("/api/auth/otp/send", json={"mobile": "9811100099", "purpose": "SIGNUP"}).status_code == 429

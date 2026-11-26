@@ -1,0 +1,22 @@
+{
+ "indic-conformer-600m-multilingual": {
+  "model_onnx.py": "700f1897493f68fc522ce73dd7f91aa39b28fc20285d3d635e92de241b3910ae",
+  "model_onnx_1b_batched_rnnt.py": "d71f4ab093e7443c0a84af5d7a907d60e3b7458fcb712140e9953e86e60cb30a",
+  "model_ts.py": "cbb56e0a3a86f9142e11b29e8f596d615c46f5a6dcc075aadad0f68a3cf2dbfc"
+ },
+ "indictrans2-en-indic-dist-200M": {
+  "configuration_indictrans.py": "d7e4ce84efacc18981228f5071b00dba6e3bf165f8ea7bcc8ecdada8942e1a52",
+  "modeling_indictrans.py": "99a90c287f959ad4ad30c2dcfbd0bb0675e8658d6d40c1db3a218615a08f706f",
+  "tokenization_indictrans.py": "35396cf65b9fdc21379f8bc12cd658eec32fbe5de87a25fa5f4df190c5ffc4e3"
+ },
+ "indictrans2-indic-en-dist-200M": {
+  "configuration_indictrans.py": "d7e4ce84efacc18981228f5071b00dba6e3bf165f8ea7bcc8ecdada8942e1a52",
+  "modeling_indictrans.py": "3b02ccd83a829d061aa11bb48190962fce6725309ac6a65621595ce45a03d47f",
+  "tokenization_indictrans.py": "35396cf65b9fdc21379f8bc12cd658eec32fbe5de87a25fa5f4df190c5ffc4e3"
+ },
+ "indictrans2-indic-indic-dist-320M": {
+  "configuration_indictrans.py": "d7e4ce84efacc18981228f5071b00dba6e3bf165f8ea7bcc8ecdada8942e1a52",
+  "modeling_indictrans.py": "5bfe8befd063b9e2ebf6f0d4f993317df3e250d096f394d8ac48957f64354d6a",
+  "tokenization_indictrans.py": "35396cf65b9fdc21379f8bc12cd658eec32fbe5de87a25fa5f4df190c5ffc4e3"
+ }
+}

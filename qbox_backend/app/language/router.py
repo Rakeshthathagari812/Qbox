@@ -1,7 +1,9 @@
 """Speech-to-text and translation API paths. All need login. The rules are in service.py."""
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
+from app.database import get_db, let_go
 from app.deps import current_user
 from app.language import service
 from app.language.ai_client import AiClient, get_ai
@@ -12,15 +14,20 @@ router = APIRouter(prefix="/api/language", tags=["Speech & translation"])
 
 
 @router.get("/status", response_model=LanguageStatusOut, summary="Is online speech/translation running?")
-def status(_: User = Depends(current_user), ai: AiClient = Depends(get_ai)):
+def status(_: User = Depends(current_user), db: Session = Depends(get_db), ai: AiClient = Depends(get_ai)):
+    let_go(db)
     return LanguageStatusOut(online=service.is_online(ai))
 
 
 @router.post("/translate", response_model=TranslateOut, summary="Translate text (IndicTrans2)")
-def translate(body: TranslateIn, user: User = Depends(current_user), ai: AiClient = Depends(get_ai)):
+def translate(body: TranslateIn, user: User = Depends(current_user), db: Session = Depends(get_db),
+              ai: AiClient = Depends(get_ai)):
+    let_go(db)
     return TranslateOut(text=service.translate(user, ai, body.text, body.source, body.target, body.fast))
 
 
 @router.post("/speech-to-text", response_model=SpeechOut, summary="Words in a WAV recording (IndicConformer)")
-def speech_to_text(body: SpeechIn, user: User = Depends(current_user), ai: AiClient = Depends(get_ai)):
+def speech_to_text(body: SpeechIn, user: User = Depends(current_user), db: Session = Depends(get_db),
+                   ai: AiClient = Depends(get_ai)):
+    let_go(db)
     return SpeechOut(text=service.speech_to_text(user, ai, body.audio, body.language, body.sampling_rate))

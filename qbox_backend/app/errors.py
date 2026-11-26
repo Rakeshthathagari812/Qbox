@@ -6,6 +6,7 @@ import logging
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 log = logging.getLogger("qbox")
 
@@ -39,6 +40,14 @@ def register_error_handlers(app: FastAPI) -> None:
                 # Our own checks raise ValueError("..."); pydantic adds "Value error, " in front.
                 message = str(first.get("msg", message)).removeprefix("Value error, ")
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=_body("INVALID_INPUT", message))
+
+    @app.exception_handler(PoolTimeout)
+    async def handle_busy(request: Request, exc: PoolTimeout):
+        log.error("No free database connection: the server is too busy")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=_body("BUSY", "QBOX is very busy right now. Please try again in a moment"),
+        )
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception):

@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.database import let_go
 from app.errors import ApiError
 from app.models import (
     Gateway,
@@ -134,6 +135,7 @@ def pay_shop(db: Session, user: User, body: ShopPayIn, gateways: Gateways) -> Sh
         expires_at=now + (timedelta(minutes=service.ORDER_MINUTES) if online else ASK_FOR),
     )
     if online:
+        let_go(db)
         order = account.create_order(body.amount_paise, f"qbox-{body.client_ref}", {"qbox": "direct"})
         payment.gateway, payment.gateway_ref = Gateway.ORDER.value, order.ref
         payment.gateway_key_id = account.key_id

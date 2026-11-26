@@ -18,6 +18,9 @@ abstract class DeviceActions {
   /// Where the phone's voices are added.
   Future<bool> openVoiceSettings();
 
+  /// Which build of QBOX this is. Null = not known.
+  Future<int?> appBuild();
+
   /// How loud the phone speaks, 0 to 100. Null = not known.
   Future<int?> mediaVolume();
 
@@ -49,9 +52,14 @@ class PhoneDeviceActions implements DeviceActions {
   }
 
   @override
-  Future<int?> mediaVolume() async {
+  Future<int?> mediaVolume() => _number('mediaVolume');
+
+  @override
+  Future<int?> appBuild() => _number('appBuild');
+
+  Future<int?> _number(String what) async {
     try {
-      return await _settings.invokeMethod<int>('mediaVolume');
+      return await _settings.invokeMethod<int>(what);
     } catch (_) {
       return null;
     }

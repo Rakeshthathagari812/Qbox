@@ -1,7 +1,8 @@
 """Limits how many login / OTP / PIN-reset requests one device (IP address) can make.
 
 Each account already locks after wrong PINs, but someone could try ONE easy PIN
-on thousands of different numbers. Counting per device stops that.
+on thousands of different numbers. Counting wrong tries per address stops that.
+People on mobile data share addresses, so right logins are hardly limited.
 
 Counted in memory: fine for one server process (a proxy such as Nginx or
 Cloudflare should also limit per IP when going live).
@@ -25,14 +26,42 @@ _lock = threading.Lock()
 
 
 def limit_auth_requests(request: Request) -> None:
-    limit = get_settings().auth_requests_per_ip_10min
+    settings = get_settings()
+    ip = request.client.host if request.client else "unknown"
+    request.state.ip = ip
+    _limit(f"ip:{ip}", settings.auth_requests_per_ip_10min)
+    if settings.auth_wrong_per_ip_10min > 0:
+        wait = _count(f"wrong:{ip}", settings.auth_wrong_per_ip_10min, _WINDOW_SECONDS, add=False)
+        if wait:
+            raise _too_many(wait)
+
+
+def wrong_try(request: Request) -> None:
+    """A wrong PIN, code or number was sent from this address."""
+    if get_settings().auth_wrong_per_ip_10min > 0:
+        _count(f"wrong:{request.state.ip}", get_settings().auth_wrong_per_ip_10min, _WINDOW_SECONDS)
+
+
+def limit_code(request: Request) -> None:
+    """A new code costs an SMS."""
+    _limit(f"code:{request.state.ip}", get_settings().auth_codes_per_ip_10min)
+
+
+def limit_mobile(mobile: str) -> None:
+    """One number, from anywhere."""
+    _limit(f"mobile:{mobile}", get_settings().auth_requests_per_mobile_10min)
+
+
+def _limit(key: str, limit: int) -> None:
     if limit <= 0:
         return
-    ip = request.client.host if request.client else "unknown"
-    wait = _count(ip, limit, _WINDOW_SECONDS)
+    wait = _count(key, limit, _WINDOW_SECONDS)
     if wait:
-        raise ApiError(429, "TOO_MANY_REQUESTS",
-                       f"Too many attempts from this phone. Please try again in {wait} minutes")
+        raise _too_many(wait)
+
+
+def _too_many(wait: int) -> ApiError:
+    return ApiError(429, "TOO_MANY_REQUESTS", f"Too many attempts. Please try again in {wait} minutes")
 
 
 def limit_lookups(user_id: int) -> None:
@@ -49,8 +78,8 @@ def limit_photos(user_id: int) -> None:
         raise ApiError(429, "TOO_MANY_PHOTOS", f"Too many photos. Please try again in {wait} minutes")
 
 
-def _count(key: str, limit: int, window: int) -> int:
-    """Counts one request. 0 = allowed; otherwise the minutes to wait."""
+def _count(key: str, limit: int, window: int, add: bool = True) -> int:
+    """Counts one request (or only looks). 0 = allowed; otherwise the minutes to wait."""
     now = time.monotonic()
     with _lock:
         times = _seen.setdefault(key, deque())
@@ -58,7 +87,8 @@ def _count(key: str, limit: int, window: int) -> int:
             times.popleft()
         if len(times) >= limit:
             return int(window - (now - times[0])) // 60 + 1
-        times.append(now)
+        if add:
+            times.append(now)
         if len(_seen) > 50_000:  # never grows without end
             for old in [k for k, v in _seen.items() if not v or now - v[-1] > _LOOKUP_WINDOW_SECONDS]:
                 del _seen[old]

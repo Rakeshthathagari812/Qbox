@@ -10,7 +10,8 @@ os.environ.setdefault(
     "QBOX_DATABASE_URL", "postgresql+pg8000://qbox:qbox_dev_2026@localhost:5432/qbox_test"
 )
 # All test requests come from one address; the per-device limit has its own test.
-os.environ.setdefault("QBOX_AUTH_REQUESTS_PER_IP_10MIN", "0")
+for _limit in ("REQUESTS_PER_IP", "WRONG_PER_IP", "CODES_PER_IP", "REQUESTS_PER_MOBILE"):
+    os.environ.setdefault(f"QBOX_AUTH_{_limit}_10MIN", "0")
 # Tests never touch a real Razorpay account (the test keys in .env are ignored);
 # payment tests use a pretend Razorpay.
 os.environ["QBOX_RAZORPAY_KEY_ID"] = ""

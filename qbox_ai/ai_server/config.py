@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / ".env", env_prefix="QBOX_AI_", extra="ignore")
 
+    # "dev" on this PC, "production" on the real server.
+    app_env: str = "dev"
     # Shared secret: the QBOX backend sends it with every request (its QBOX_AI_KEY).
     key: str = DEV_KEY
     # Where download_models.py put the models.
@@ -27,6 +29,12 @@ class Settings(BaseSettings):
     threads: int = 0
 
 
+def check_settings(settings: Settings) -> Settings:
+    if settings.app_env.lower() == "production" and (settings.key == DEV_KEY or len(settings.key) < 32):
+        raise ValueError("Set a private QBOX_AI_KEY (32+ characters) in production, the same as in qbox_backend")
+    return settings
+
+
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return check_settings(Settings())

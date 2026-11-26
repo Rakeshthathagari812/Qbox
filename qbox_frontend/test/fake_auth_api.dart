@@ -423,6 +423,10 @@ class FakeDeviceActions implements DeviceActions {
   int settingsOpened = 0;
   int voiceSettingsOpened = 0;
   int? volume = 60;
+  int? build = 1;
+
+  @override
+  Future<int?> appBuild() async => build;
 
   @override
   Future<bool> openVoiceSettings() async {

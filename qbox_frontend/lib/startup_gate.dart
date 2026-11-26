@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'choose_role_screen.dart';
@@ -5,6 +7,7 @@ import 'onboarding_draft.dart';
 import 'services/app_services.dart';
 import 'services/auth_api.dart';
 import 'splash_screen.dart';
+import 'update_screen.dart';
 import 'welcome_screen.dart';
 
 enum _Startup { checking, loggedIn, loggedOut, offline }
@@ -34,7 +37,18 @@ class _StartupGateState extends State<StartupGate> {
     super.didChangeDependencies();
     if (_started) return;
     _started = true;
+    unawaited(_checkVersion());
     _restore();
+  }
+
+  /// Meanwhile, so it never makes starting slower.
+  Future<void> _checkVersion() async {
+    final navigator = Navigator.of(context);
+    final url = await updateNeeded(ServicesScope.of(context));
+    if (url == null || !mounted) return;
+    unawaited(
+      navigator.pushAndRemoveUntil<void>(MaterialPageRoute(builder: (_) => UpdateScreen(url: url)), (_) => false),
+    );
   }
 
   Future<void> _restore() async {

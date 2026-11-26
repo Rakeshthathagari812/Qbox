@@ -108,6 +108,10 @@ class FakeProfileApi implements ProfileApi {
 
   DeleteCheck toDelete = const DeleteCheck();
   SupportContact contact = const SupportContact();
+  AppVersions allowed = const AppVersions();
+
+  @override
+  Future<AppVersions> versions() async => allowed;
 
   @override
   Future<DeleteCheck> deleteCheck() async {

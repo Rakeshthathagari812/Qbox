@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -28,6 +29,14 @@ class MainActivity : FlutterActivity() {
                     val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
                     val most = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                     result.success(if (most == 0) 0 else audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / most)
+                }
+                // Which build this is, for the update check.
+                "appBuild" -> {
+                    val info = packageManager.getPackageInfo(packageName, 0)
+                    @Suppress("DEPRECATION")
+                    result.success(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode.toInt() else info.versionCode
+                    )
                 }
                 else -> result.notImplemented()
             }
